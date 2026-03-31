@@ -4,6 +4,7 @@ import * as dat from 'dat.gui'
 import BPMManager from './managers/BPMManager'
 import AudioManager from './managers/AudioManager'
 import EEGManager from './managers/EEGManager'
+import EntrainmentManager from './managers/EntrainmentManager'
 import BioDataDisplay from './ui/BioDataDisplay'
 import JellyfinManager from './managers/JellyfinManager'
 import JellyfinBrowser from './ui/JellyfinBrowser'
@@ -26,6 +27,7 @@ export default class App {
   static audioManager = null
   static bpmManager = null
   static eegManager = null
+  static entrainmentManager = null
 
   constructor() {
     const overlay = document.querySelector('.user_interaction')
@@ -116,6 +118,8 @@ export default class App {
       this.particles.onBPMBeat()
     })
     await App.bpmManager.detectBPM(App.audioManager.audio.buffer)
+
+    App.entrainmentManager = new EntrainmentManager()
 
     document.querySelector('.user_interaction').remove()
 
@@ -321,6 +325,7 @@ export default class App {
       App.eegManager?.headPose ?? null,
     )
     App.audioManager?.update()
+    App.entrainmentManager?.update(performance.now())
 
     if (this.renderer) this.renderer.render(this.scene, this.camera)
   }

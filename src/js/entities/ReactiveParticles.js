@@ -21,7 +21,7 @@ const EEG_LERP_RATE = 0.06  // per-frame lerp toward latest EEG bands (~60 fps â
  * 'hr' is the heart-rate phase oscillator (0â€“1, cubed-sine shape), unchanged.
  * 'none' produces zero contribution.
  */
-const BIO_SOURCES = ['none', 'delta', 'theta', 'alpha', 'beta', 'gamma', 'hr']
+const BIO_SOURCES = ['none', 'delta', 'theta', 'alpha', 'beta', 'gamma', 'hr', 'entrain']
 
 /**
  * Per viz-parameter bio mapping ranges.
@@ -275,13 +275,14 @@ export default class ReactiveParticles extends THREE.Object3D {
     }
 
     const sources = {
-      none:  0,
-      delta: this._smoothedBands.delta,
-      theta: this._smoothedBands.theta,
-      alpha: this._smoothedBands.alpha,
-      beta:  this._smoothedBands.beta,
-      gamma: this._smoothedBands.gamma,
-      hr:    heartPulse,
+      none:    0,
+      delta:   this._smoothedBands.delta,
+      theta:   this._smoothedBands.theta,
+      alpha:   this._smoothedBands.alpha,
+      beta:    this._smoothedBands.beta,
+      gamma:   this._smoothedBands.gamma,
+      hr:      heartPulse,
+      entrain: App.entrainmentManager?.entrainment ?? 0,
     }
 
     let amplitude, offsetGain, size, maxDistance

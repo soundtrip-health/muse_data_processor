@@ -389,8 +389,31 @@ a:focus-visible {
   text-align: right;
 }
 
-#spec-canvas, #spec-lo-canvas {
+#spec-canvas, #spec-lo-canvas, #spec-audio-canvas {
   image-rendering: pixelated;
+}
+
+// ── Entrainment meter ──────────────────────────────────────────────────────
+.bio-entrain-value {
+  font-size: 0.6rem;
+  color: rgba(255, 255, 255, 0.55);
+  font-variant-numeric: tabular-nums;
+}
+
+.bio-entrain-bar {
+  height: 3px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 1.5px;
+  margin-top: 0.25rem;
+  overflow: hidden;
+}
+
+.bio-entrain-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #34d399, #60a5fa);
+  border-radius: 1.5px;
+  transition: width 0.3s ease-out;
 }
 
 .bio-imu-legend {

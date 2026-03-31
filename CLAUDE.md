@@ -25,8 +25,9 @@ No test suite is configured.
 Then on user interaction (click for demo track, file upload via the Track button, or track selection from Jellyfin browser):
 3. `AudioManager.loadAudioBuffer(source)` — loads a `File` object or fetches `/audio/demo.mp3`
 4. `BPMManager.detectBPM()` — analyzes the buffer with `web-audio-beat-detector`
-5. `ReactiveParticles.init()` — creates ShaderMaterial, builds mesh, adds dat.GUI
-6. `update()` render loop starts (already running for EEG/bio; particles render once audio loads)
+5. `EntrainmentManager` — instantiated (precomputes DFT kernels for tempogram analysis)
+6. `ReactiveParticles.init()` — creates ShaderMaterial, builds mesh, adds dat.GUI
+7. `update()` render loop starts (already running for EEG/bio; particles render once audio loads)
 
 If `demo.mp3` is absent the UI shows an error; audio can be replaced at any time via the Track button (file upload) or the `☁ Jellyfin` button (stream from server). When EEG connects (before or after music), `autoMix` and `autoRotate` are set to `false` and `headControl` to `true`.
 
@@ -35,8 +36,9 @@ If `demo.mp3` is absent the UI shows an error; audio can be replaced at any time
 | File | Responsibility |
 |------|----------------|
 | `src/js/App.js` | Scene, camera, renderer, resize, render loop, coordinates all managers |
-| `src/js/managers/AudioManager.js` | Audio loading (File or URL), Three.js AudioListener/AudioAnalyser, normalized `{ low, mid, high }` frequency bands |
+| `src/js/managers/AudioManager.js` | Audio loading (File or URL), Three.js AudioListener/AudioAnalyser, normalized `{ low, mid, high }` frequency bands, spectral-flux novelty curve |
 | `src/js/managers/BPMManager.js` | BPM detection, beat event dispatch via Three.js EventDispatcher |
+| `src/js/managers/EntrainmentManager.js` | Real-time EEG–music entrainment: parallel audio/EEG tempograms (0.5–5 Hz), z-score selective enhancement comparison, entrainment index (0–1) |
 | `src/js/managers/EEGManager.js` | Muse BT connection (Web Bluetooth), EEG band powers, PPG heart rate, IMU head pose; exposes raw display buffers + sample counters |
 | `src/js/ui/BioDataDisplay.js` | Live webgl-plot panel: scrolling EEG (4ch), PPG, and IMU (accel+gyro) traces; signal quality dots |
 | `src/js/managers/JellyfinManager.js` | Jellyfin API client: auth (username/password or API key), paginated music library browsing, stream URL generation; credentials persisted to `localStorage` (token only, never password) |
@@ -50,7 +52,8 @@ If `demo.mp3` is absent the UI shows an error; audio can be replaced at any time
 Each frame in `App.update()`:
 1. `EEGManager.update(performance.now())` — advances the heart-rate phase oscillator
 2. `ReactiveParticles.update(bandPower, heartPulse, headPose)` — maps audio + EEG to uniforms
-3. `AudioManager.update()` — refreshes the FFT analyser data
+3. `AudioManager.update()` — refreshes FFT analyser data + samples spectral-flux novelty
+4. `EntrainmentManager.update(now)` — rate-limited to ~2 Hz; computes audio/EEG tempograms and entrainment index
 
 On each BPM beat, `ReactiveParticles.onBPMBeat()` randomly (30% chance each) triggers a GSAP rotation tween and/or a geometry reset to a new randomized cylinder (`resetMesh` → `createCylinderMesh`), each gated by **VISUALIZER** toggles and head-control state.
 
@@ -81,11 +84,23 @@ EEG uses **multiplicative** scaling: `uniform *= (1 + source * weight)`. This me
 - **Display buffers**: `eegChannels[4]` (1024-sample rolling), `ppgDisplay` getter (384-sample rolling), `accelDisplay`/`gyroDisplay` ({x,y,z} rolling). Monotonic counters `eegSampleCount`, `ppgSampleCount`, `imuSampleCount` allow consumers to detect new samples even after buffers reach capacity.
 - **Signal quality**: `signalQuality[4]` — per-channel RMS after mean subtraction, updated ~4×/s. `'good'` (rms < 50 µV), `'marginal'` (50–100 µV), `'poor'` (> 100 µV).
 
+### EntrainmentManager — EEG–Music Entrainment
+
+- **Audio novelty**: spectral flux (half-wave rectified spectral difference) sampled per render frame (~60 Hz) into a timestamped ring buffer (768 entries)
+- **Audio tempogram**: resampled novelty at 64 Hz → 8 s Hann-windowed DFT at 0.5–5.0 Hz (46 bins, 0.1 Hz steps). Precomputed kernels (512 samples).
+- **EEG tempogram**: quality-weighted 4-channel average → subtract 0.5 s moving average → 8 s Hann-windowed DFT at same 46 bins. Precomputed kernels (2048 samples).
+- **Entrainment index**: z-score both tempograms → identify audio beat peaks (z > 0.5) → contrast = mean(eegZ at peaks) − mean(eegZ at non-peaks) → sigmoid → rescale to [0, 1]. EMA smoothed (α=0.15).
+- Updates at ~2 Hz (`UPDATE_INTERVAL_MS=500`). Exposes `entrainment` (0–1), `audioTempogram`, `eegTempogram`.
+- Graceful degradation: audio-only shows tempogram but entrainment=0; EEG-only likewise; both missing → all zero.
+- References: Nozaradan et al. (2012), Stober et al. (2016) "Brain Beats"
+
 ### BioDataDisplay — Live Data Panel
 
 - Toggle button `◉` appears in `#eeg-controls` once EEG connects; opens `#bio-panel` above controls.
 - Three `WebglLineRoll` plots (webgl-plot library): EEG 4-channel stacked, PPG single trace (auto-scaled), IMU accel+gyro 6 lines.
 - **Spectrogram**: Two 2D `<canvas>` heatmaps with viridis colormap on log₁₀ power, auto-scaled. Full spectrogram (`#spec-canvas`, 280×86 px): bins 8–50 Hz, 2 px/bin vertically, 2 px/column scroll. Low-frequency panel (`#spec-lo-canvas`, 280×76 px): 0.5–8.0 Hz at 0.1 Hz, 1 px/bin vertically, 2 px/column scroll. Scrolling via `drawImage(canvas, -2, 0)`. Frequency axis labels alongside each canvas. Between EEG raw traces and EEG Bands.
+- **Audio tempogram**: `#spec-audio-canvas` (280×46 px): 0.5–5.0 Hz at 0.1 Hz, 1 px/bin, viridis colormap, same auto-scaling. Scrolling heatmap of spectral-flux novelty DFT power. Visible in bio-panel when audio is playing.
+- **Entrainment meter**: horizontal bar (`#bio-entrain-bar`) with gradient fill showing entrainment percentage. Label in `#bio-entrain-value`.
 - Signal quality shown as colored dots (green/yellow/red) per EEG channel.
 - Panel and toggle hidden when EEG is disconnected.
 
@@ -94,7 +109,7 @@ EEG uses **multiplicative** scaling: `uniform *= (1 + source * weight)`. This me
 - **PARTICLES**: Start Color, End Color
 - **VISUALIZER**: Auto Mix (geometry swap on beat), Auto Rotate (GSAP rotation on beat), Head Control (IMU) — routes pitch/roll to `holderObjects.rotation`, Reset Cylinder
 - **AUDIO**: Bass Gain, Mid Gain, High Gain (all 0–2)
-- **MAPPING**: Per-parameter sub-folders (Amplitude, Turbulence, Particle Size, Spread Radius, Field Chaos, Hue Shift, Color Flush) each with Source dropdown + Weight slider
+- **MAPPING**: Per-parameter sub-folders (Amplitude, Turbulence, Particle Size, Spread Radius, Field Chaos, Hue Shift, Color Flush) each with Source dropdown (`none`, `delta`, `theta`, `alpha`, `beta`, `gamma`, `hr`, `entrain`) + Weight slider
 
 ### Jellyfin Integration
 

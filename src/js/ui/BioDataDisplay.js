@@ -114,8 +114,9 @@ export default class BioDataDisplay {
   _bandGL  = null
   _ppgGL   = null
   _imuGL   = null
-  _specCtx   = null     // 2D canvas context for full spectrogram (1–50 Hz)
-  _specLoCtx = null     // 2D canvas context for low-end spectrogram (1–8 Hz)
+  _specCtx      = null  // 2D canvas context for full spectrogram (1–50 Hz)
+  _specLoCtx    = null  // 2D canvas context for low-end spectrogram (1–8 Hz)
+  _specAudioCtx = null  // 2D canvas context for audio tempogram (0.5–5 Hz)
 
   _eegReadIdx = [0, 0, 0, 0]
   _ppgReadIdx = 0
@@ -133,6 +134,12 @@ export default class BioDataDisplay {
   _specHiWin   = []           // sliding window of per-column max for percentile ceiling (full)
   _specLoLo    = 0            // running floor for low-freq view
   _specLoHiWin = []           // sliding window of per-column max for percentile ceiling (lo-freq)
+
+  // Audio tempogram display state
+  _specAudioLo    = 0
+  _specAudioHiWin = []
+  _entrainValueEl = null
+  _entrainFillEl  = null
 
   /**
    * Create WebGL contexts and rolling-line plots for all three canvases.
@@ -157,6 +164,14 @@ export default class BioDataDisplay {
     this._specLoCtx = specLoCanvas.getContext('2d')
     this._specLoCtx.fillStyle = '#000'
     this._specLoCtx.fillRect(0, 0, specLoCanvas.width, specLoCanvas.height)
+
+    // Audio tempogram (0.5–5.0 Hz spectral-flux novelty, entrainment comparison)
+    const specAudioCanvas = document.getElementById('spec-audio-canvas')
+    this._specAudioCtx = specAudioCanvas.getContext('2d')
+    this._specAudioCtx.fillStyle = '#000'
+    this._specAudioCtx.fillRect(0, 0, specAudioCanvas.width, specAudioCanvas.height)
+    this._entrainValueEl = document.getElementById('bio-entrain-value')
+    this._entrainFillEl  = document.getElementById('bio-entrain-fill')
 
     // EEG band powers — 5 lines (delta, theta, alpha, beta, gamma), polled each frame
     const bandCanvas = document.getElementById('band-canvas')
@@ -207,13 +222,17 @@ export default class BioDataDisplay {
   /** Call each animation frame (only when panel is visible). */
   update() {
     const mgr = App.eegManager
-    if (!mgr?.isConnected) return
-    this._updateEEG(mgr)
-    this._updateSpectrum(mgr)
-    this._updateSpectrumLo(mgr)
-    this._updateBands(mgr)
-    this._updatePPG(mgr)
-    this._updateIMU(mgr)
+    if (mgr?.isConnected) {
+      this._updateEEG(mgr)
+      this._updateSpectrum(mgr)
+      this._updateSpectrumLo(mgr)
+      this._updateBands(mgr)
+      this._updatePPG(mgr)
+      this._updateIMU(mgr)
+    }
+    // Audio tempogram + entrainment meter update even without EEG
+    this._updateAudioTempogram()
+    this._updateEntrainmentMeter()
   }
 
   // ── Private ──────────────────────────────────────────────────────────────────
@@ -432,5 +451,73 @@ export default class BioDataDisplay {
 
     this._imuGL.clear(this._imuGL.COLOR_BUFFER_BIT)
     this._imuPlot.draw()
+  }
+
+  // ── Audio tempogram heatmap ────────────────────────────────────────────────
+
+  _updateAudioTempogram() {
+    const eMgr = App.entrainmentManager
+    const spec = eMgr?.audioTempogram
+    if (!spec) return
+
+    const BINS      = spec.length    // 46
+    const COL_WIDTH = SPEC_COL_WIDTH // 2 px
+    const canvas    = this._specAudioCtx.canvas
+    const H         = BINS           // 1 px per bin → 46 px tall
+
+    // Shift existing content left
+    this._specAudioCtx.drawImage(canvas, -COL_WIDTH, 0)
+
+    const imgData = this._specAudioCtx.createImageData(COL_WIDTH, H)
+
+    // Convert to log scale for display (consistent with other spectrograms)
+    let colMax = -Infinity
+    for (let i = 0; i < BINS; i++) {
+      const logVal = Math.log10(spec[i] + 1e-10)
+      if (logVal > colMax) colMax = logVal
+      if (logVal < this._specAudioLo) this._specAudioLo = logVal
+    }
+    if (colMax > -Infinity) {
+      this._specAudioHiWin.push(colMax)
+      if (this._specAudioHiWin.length > SPEC_SCALE_WIN) this._specAudioHiWin.shift()
+    }
+    this._specAudioLo += (1 - SPEC_SCALE_DECAY)
+
+    const sorted = this._specAudioHiWin.slice().sort((a, b) => a - b)
+    const hi = sorted.length
+      ? sorted[Math.max(0, Math.floor((sorted.length - 1) * SPEC_SCALE_PCT))]
+      : this._specAudioLo + SPEC_MIN_RANGE
+    const range = Math.max(hi - this._specAudioLo, SPEC_MIN_RANGE)
+
+    for (let i = 0; i < BINS; i++) {
+      const logVal = Math.log10(spec[i] + 1e-10)
+      const norm = (logVal - this._specAudioLo) / range
+      const idx  = Math.max(0, Math.min(255, Math.round(norm * 255)))
+      const [r, g, b] = VIRIDIS_LUT[idx]
+      const y = H - 1 - i
+      for (let cx = 0; cx < COL_WIDTH; cx++) {
+        const off = (y * COL_WIDTH + cx) * 4
+        imgData.data[off]     = r
+        imgData.data[off + 1] = g
+        imgData.data[off + 2] = b
+        imgData.data[off + 3] = 255
+      }
+    }
+
+    this._specAudioCtx.putImageData(imgData, canvas.width - COL_WIDTH, 0)
+  }
+
+  // ── Entrainment meter ──────────────────────────────────────────────────────
+
+  _updateEntrainmentMeter() {
+    const eMgr = App.entrainmentManager
+    if (!eMgr || !this._entrainFillEl) return
+
+    const val = eMgr.entrainment
+    this._entrainFillEl.style.width = `${(val * 100).toFixed(1)}%`
+
+    if (this._entrainValueEl) {
+      this._entrainValueEl.textContent = val > 0.01 ? `${(val * 100).toFixed(0)}%` : ''
+    }
   }
 }

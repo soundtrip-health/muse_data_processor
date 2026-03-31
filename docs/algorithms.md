@@ -551,3 +551,94 @@ The current implementation uses a single Hann window, which provides ~-31 dB sid
 The rendering pipeline (Stages 4–5) would remain unchanged — only the spectral estimation (Stages 1–2) would be swapped. The main tradeoff is shipping a ~30 KB JSON taper file and `K×` more DFT computation per window (5× at NW=3), which is still negligible at the 2 Hz update rate.
 
 Reference: Thomson, D. J. (1982). "Spectrum estimation and harmonic analysis." *Proceedings of the IEEE*, 70(9), 1055–1096.
+
+---
+
+## §6 — EEG–Music Entrainment Index
+
+Measures how strongly the listener's neural rhythms mirror the music's beat structure, following the methodologies of Nozaradan et al. (2012) and Stober et al. (2016).
+
+**Files:** `src/js/managers/EntrainmentManager.js`, `src/js/managers/AudioManager.js` (novelty curve)
+
+### Stage 1: Audio Spectral-Flux Novelty Curve
+
+Each render frame (~60 Hz), compute the **half-wave rectified spectral flux** from the AudioAnalyser's FFT magnitude data:
+
+```
+flux = Σ max(0, currentMag[i] - prevMag[i])   for i = 0..511
+```
+
+- Uses the existing 1024-point FFT (512 magnitude bins, 0–255 uint8)
+- Captures note onsets and rhythmic events more clearly than raw amplitude
+- Stored with timestamp in a ring buffer (768 entries ≈ 12.8 s at 60 fps)
+
+Reference: Grosche & Müller (2011). "Extracting predominant local pulse information from music recordings." *IEEE TASLP*.
+
+### Stage 2: Audio Tempogram
+
+At ~2 Hz update rate:
+
+1. **Resample** the variable-rate novelty ring buffer to a uniform 64 Hz grid via linear interpolation
+2. **Hann-windowed DFT** over an 8-second window (512 samples) at 0.5–5.0 Hz in 0.1 Hz steps (46 bins)
+3. Output: **power spectrum** (re² + im²) per bin — the audio tempogram
+
+| Constant | Value | Rationale |
+|---|---|---|
+| `NOVELTY_FS` | 64 Hz | Resample grid; Nyquist well above 5 Hz ceiling |
+| `TEMPO_WIN_SAMP` | 512 | 8 s × 64 Hz (Stober §4.1 tempo window) |
+| `RHYTHM_MIN_HZ` | 0.5 | 30 BPM — lower musical tempo bound |
+| `RHYTHM_MAX_HZ` | 5.0 | 300 BPM — upper musical tempo bound |
+| `RHYTHM_STEP_HZ` | 0.1 | 6 BPM resolution at ~60 BPM |
+| `RHYTHM_NUM_BINS` | 46 | `(5.0 − 0.5) / 0.1 + 1` |
+
+DFT kernels (46 pairs of Hann-weighted cosine/sine arrays, length 512) are precomputed at construction.
+
+### Stage 3: EEG Novelty Curve and Tempogram
+
+Following Stober et al. (2016) §3.2:
+
+1. **Channel aggregation**: quality-weighted average of the 4 Muse EEG channels (weights: good=1.0, marginal=0.5, poor=0.0), using the most recent 2048 samples (8 s at 256 Hz) from `EEGManager._chBuffersLong`
+2. **Mean subtraction**: subtract a centered 0.5 s (128-sample) moving average to attenuate drift and center the signal around zero. Computed via prefix sum for O(N) efficiency.
+3. **Hann-windowed DFT** at the same 46 frequency bins (0.5–5.0 Hz), using separate precomputed kernels of length 2048
+
+| Constant | Value | Rationale |
+|---|---|---|
+| `EEG_AVG_WIN` | 128 | 0.5 s moving-average window at 256 Hz (Stober §3.2) |
+| `EEG_TEMPO_BUF` | 2048 | 8 s at 256 Hz |
+
+EEG kernels (46 pairs, length 2048) precomputed at construction (~752 KB).
+
+### Stage 4: Entrainment Index
+
+Inspired by Nozaradan et al. (2012) — tests whether beat-related frequencies are **selectively enhanced** in the EEG tempogram relative to non-beat frequencies:
+
+1. **Z-score normalize** both tempograms independently: `z[i] = (x[i] − μ) / σ`
+2. **Identify beat peaks** in audio: bins where `audioZ[i] > 0.5` (z-score threshold)
+3. **Compute contrast**: `mean(eegZ[beatPeaks]) − mean(eegZ[nonPeaks])`
+4. **Sigmoid mapping**: `sigmoid = 1 / (1 + exp(−2.0 × contrast))`
+5. **Rescale to [0, 1]**: `index = max(0, 2 × (sigmoid − 0.5))` — maps no-entrainment (contrast ≤ 0) to 0
+
+| Constant | Value | Rationale |
+|---|---|---|
+| `PEAK_Z_THRESH` | 0.5 | z-score threshold for beat frequency identification |
+| `SIGMOID_K` | 2.0 | Sigmoid steepness |
+| `ENTRAIN_EMA` | 0.15 | Output EMA smoothing (~3 s settling at 2 Hz) |
+
+### Stage 5: Integration and Display
+
+- **Bio source**: exposed as `'entrain'` in `ReactiveParticles.BIO_SOURCES`, mappable to any viz parameter through the MAPPING GUI
+- **Audio tempogram heatmap**: scrolling viridis heatmap in `#spec-audio-canvas` (46 bins × 1 px/bin, same auto-scaling as EEG spectrograms)
+- **Entrainment meter**: horizontal bar in bio-panel showing percentage fill
+
+### Graceful Degradation
+
+- Audio only (no EEG): audio tempogram displays, entrainment stays 0
+- EEG only (no audio): EEG tempogram computed, entrainment stays 0
+- Both missing: all outputs zero/null
+- Track swap or EEG disconnect: entrainment decays to 0 via EMA
+
+### References
+
+- Nozaradan, S., Peretz, I., & Mouraux, A. (2012). Selective neuronal entrainment to the beat and meter embedded in a musical rhythm. *J. Neurosci.*, 32(49), 17572–17581.
+- Stober, S., Prätzlich, T., & Müller, M. (2016). Brain beats: Tempo extraction from EEG data. *Proc. ISMIR*, 276–282.
+- Grosche, P. & Müller, M. (2011). Extracting predominant local pulse information from music recordings. *IEEE TASLP*, 19(6), 1688–1701.
