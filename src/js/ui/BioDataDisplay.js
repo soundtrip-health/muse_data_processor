@@ -1,5 +1,6 @@
-import { WebglLineRoll, ColorRGBA, createWebGL2Context, setBackgroundColor } from 'webgl-plot'
+import { WebglLineRoll, createWebGL2Context, setBackgroundColor } from 'webgl-plot'
 import App from '../App'
+import { colorVar, colorVars } from './palette'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -25,50 +26,16 @@ const IMU_ROLL    = 208    // 4 s at ~52 Hz
 const ACCEL_SCALE = 2.0    // ±2 g (Muse full range)
 const GYRO_SCALE  = 300    // ±300 dps
 
-// ── Colors (0–255) ────────────────────────────────────────────────────────────
+// ── Colors ────────────────────────────────────────────────────────────────────
+// Trace colors are read from the CSS design tokens at init time (see palette.js
+// + src/scss/includes/_tokens.scss) so the plots never drift from the stylesheet.
 
-const EEG_COLORS = [
-  new ColorRGBA(77,  217, 255, 255),   // TP9  — cyan
-  new ColorRGBA(102, 255, 128, 255),   // AF7  — green
-  new ColorRGBA(255, 166,  51, 255),   // AF8  — orange
-  new ColorRGBA(229, 102, 255, 255),   // TP10 — magenta
-]
-
-// delta=violet, theta=blue, alpha=green, beta=amber, gamma=red
-const BAND_COLORS = [
-  new ColorRGBA(167, 139, 250, 255),  // δ delta  — violet
-  new ColorRGBA( 96, 165, 250, 255),  // θ theta  — blue
-  new ColorRGBA( 52, 211, 153, 255),  // α alpha  — green
-  new ColorRGBA(251, 191,  36, 255),  // β beta   — amber
-  new ColorRGBA(248, 113, 113, 255),  // γ gamma  — red
-]
-
-const PPG_COLOR = new ColorRGBA(255, 128, 128, 255)  // salmon
-
-const IMU_COLORS = [
-  new ColorRGBA( 77, 178, 255, 255),   // ax — blue
-  new ColorRGBA( 51, 128, 230, 255),   // ay — darker blue
-  new ColorRGBA(128, 210, 255, 255),   // az — lighter blue
-  new ColorRGBA(255, 102, 102, 255),   // gx — red
-  new ColorRGBA(217,  77,  77, 255),   // gy — darker red
-  new ColorRGBA(255, 153, 128, 255),   // gz — lighter red
-]
-
-// MSE scale colors — violet→amber gradient across the 5 scales (τ=1 → τ=9)
-const MSE_RGB = (() => {
-  const N = 5
-  const arr = new Array(N)
-  for (let i = 0; i < N; i++) {
-    const t = i / (N - 1)
-    arr[i] = [
-      Math.round(167 * (1 - t) + 251 * t),
-      Math.round(139 * (1 - t) + 191 * t),
-      Math.round(250 * (1 - t) +  36 * t),
-    ]
-  }
-  return arr
-})()
-const MSE_COLORS = MSE_RGB.map(([r, g, b]) => new ColorRGBA(r, g, b, 255))
+const EEG_TOKENS  = ['--eeg-tp9', '--eeg-af7', '--eeg-af8', '--eeg-tp10']
+const BAND_TOKENS = ['--band-delta', '--band-theta', '--band-alpha', '--band-beta', '--band-gamma']
+const IMU_TOKENS  = ['--imu-accel-x', '--imu-accel-y', '--imu-accel-z',
+                     '--imu-gyro-x', '--imu-gyro-y', '--imu-gyro-z']
+// MSE scale colors — violet→amber across the 5 scales (τ=1 → τ=9)
+const MSE_TOKENS  = ['--mse-1', '--mse-2', '--mse-3', '--mse-4', '--mse-5']
 
 // ── Spectrogram ──────────────────────────────────────────────────────────────
 
@@ -179,7 +146,7 @@ export default class BioDataDisplay {
     this._eegGL = createWebGL2Context(eegCanvas, { transparent: true })
     setBackgroundColor(this._eegGL, TRANSPARENT)
     this._eegPlot = new WebglLineRoll(this._eegGL, EEG_ROLL, 4)
-    EEG_COLORS.forEach((c, i) => this._eegPlot.setLineColor(c, i))
+    colorVars(EEG_TOKENS).forEach((c, i) => this._eegPlot.setLineColor(c, i))
 
     // Spectrogram — 2D canvas (not WebGL), scrolling heatmap of Hann-DFT power
     const specCanvas = document.getElementById('spec-canvas')
@@ -206,7 +173,7 @@ export default class BioDataDisplay {
     this._bandGL = createWebGL2Context(bandCanvas, { transparent: true })
     setBackgroundColor(this._bandGL, TRANSPARENT)
     this._bandPlot = new WebglLineRoll(this._bandGL, BAND_ROLL, 5)
-    BAND_COLORS.forEach((c, i) => this._bandPlot.setLineColor(c, i))
+    colorVars(BAND_TOKENS).forEach((c, i) => this._bandPlot.setLineColor(c, i))
 
     const BAND_NAMES = ['delta', 'theta', 'alpha', 'beta', 'gamma']
     this._bandItemEls = BAND_NAMES.map(b => document.getElementById(`band-item-${b}`))
@@ -218,7 +185,7 @@ export default class BioDataDisplay {
       this._mseGL = createWebGL2Context(mseCanvas, { transparent: true })
       setBackgroundColor(this._mseGL, TRANSPARENT)
       this._msePlot = new WebglLineRoll(this._mseGL, MSE_ROLL, 5)
-      MSE_COLORS.forEach((c, i) => this._msePlot.setLineColor(c, i))
+      colorVars(MSE_TOKENS).forEach((c, i) => this._msePlot.setLineColor(c, i))
       this._mseValueEl = document.getElementById('bio-mse-value')
       this._mseValEls  = [0, 1, 2, 3, 4].map(i => document.getElementById(`mse-val-${i}`))
     }
@@ -228,14 +195,14 @@ export default class BioDataDisplay {
     this._ppgGL = createWebGL2Context(ppgCanvas, { transparent: true })
     setBackgroundColor(this._ppgGL, TRANSPARENT)
     this._ppgPlot = new WebglLineRoll(this._ppgGL, PPG_ROLL, 1)
-    this._ppgPlot.setLineColor(PPG_COLOR, 0)
+    this._ppgPlot.setLineColor(colorVar('--ppg'), 0)
 
     // IMU — accel (3) + gyro (3) in one plot
     const imuCanvas = document.getElementById('imu-canvas')
     this._imuGL = createWebGL2Context(imuCanvas, { transparent: true })
     setBackgroundColor(this._imuGL, TRANSPARENT)
     this._imuPlot = new WebglLineRoll(this._imuGL, IMU_ROLL, 6)
-    IMU_COLORS.forEach((c, i) => this._imuPlot.setLineColor(c, i))
+    colorVars(IMU_TOKENS).forEach((c, i) => this._imuPlot.setLineColor(c, i))
 
     this.resetIndices()
   }

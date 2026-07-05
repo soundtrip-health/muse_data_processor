@@ -16,14 +16,6 @@ html {
   box-sizing: border-box;
 }
 
-:root {
-  font-size: 16px;
-  --color-text: #fffbf5;
-  --color-bg: #000000;
-  --color-link: #fffbf5;
-  --color-link-hover: #fffbf5;
-}
-
 body {
   margin: 0;
   color: var(--color-text);
@@ -123,29 +115,6 @@ a:focus-visible {
   outline: none;
 }
 
-.content {
-  width: 100%;
-  height: 100%;
-  position: absolute;
-  top: 0;
-  left: 0;
-}
-
-.user_interaction {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: rgba(0, 0, 0, 0.5);
-  z-index: 1000;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  flex-direction: column;
-  gap: 1.5rem;
-}
-
 .upload-btn {
   display: inline-block;
   padding: 0.75rem 1.5rem;
@@ -172,13 +141,13 @@ a:focus-visible {
   position: fixed;
   bottom: 1.5rem;
   left: 1.5rem;
-  z-index: 1001;  // above the overlay so EEG can connect before music starts
+  z-index: 1001;  // above the bio panel so controls stay clickable
   align-items: center;
   gap: 0.6rem;
 
   #eeg-connect {
     background: none;
-    border: 1px solid rgba(255, 255, 255, 0.4);
+    border: 1px solid var(--border-control);
     color: var(--color-text);
     font-family: inherit;
     font-size: 0.75rem;
@@ -189,7 +158,7 @@ a:focus-visible {
 
     &:hover:not(:disabled) {
       border-color: var(--color-text);
-      background: rgba(255, 255, 255, 0.1);
+      background: var(--wash-hover);
     }
 
     &:disabled {
@@ -200,7 +169,7 @@ a:focus-visible {
 
   #pause-btn {
     background: none;
-    border: 1px solid rgba(255, 255, 255, 0.4);
+    border: 1px solid var(--border-control);
     color: var(--color-text);
     font-family: inherit;
     font-size: 0.85rem;
@@ -210,14 +179,42 @@ a:focus-visible {
 
     &:hover {
       border-color: var(--color-text);
-      background: rgba(255, 255, 255, 0.1);
+      background: var(--wash-hover);
+    }
+  }
+
+  #mic-btn {
+    background: none;
+    border: 1px solid var(--border-control);
+    color: var(--color-text);
+    font-family: inherit;
+    font-size: 0.85rem;
+    padding: 0.3rem 0.6rem;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s, color 0.2s;
+
+    &:hover:not(:disabled) {
+      border-color: var(--color-text);
+      background: var(--wash-hover);
+    }
+
+    &:disabled {
+      opacity: 0.5;
+      cursor: default;
+    }
+
+    // Live capture in progress
+    &.active {
+      border-color: var(--status-mic);
+      color: var(--status-mic);
+      background: rgba(var(--status-mic-rgb), 0.12);
     }
   }
 }
 
 .controls-upload-btn {
   background: none;
-  border: 1px solid rgba(255, 255, 255, 0.4);
+  border: 1px solid var(--border-control);
   color: var(--color-text);
   font-family: inherit;
   font-size: 0.75rem;
@@ -230,14 +227,14 @@ a:focus-visible {
 
   &:hover {
     border-color: var(--color-text);
-    background: rgba(255, 255, 255, 0.1);
+    background: var(--wash-hover);
   }
 }
 
 .heart-rate-display {
   font-size: 0.75rem;
   letter-spacing: 0.04em;
-  color: rgba(255, 255, 255, 0.7);
+  color: var(--text-strong);
   min-width: 4rem;
 }
 
@@ -255,37 +252,37 @@ a:focus-visible {
 
   .battery-body {
     fill: none;
-    stroke: rgba(255, 255, 255, 0.3);
+    stroke: var(--border-battery);
     stroke-width: 1;
     transition: stroke 0.3s;
   }
 
   .battery-cap {
-    fill: rgba(255, 255, 255, 0.3);
+    fill: var(--border-battery);
     transition: fill 0.3s;
   }
 
   .battery-fill {
-    fill: rgba(255, 255, 255, 0.3);
+    fill: var(--border-battery);
     transition: width 0.5s, fill 0.3s;
   }
 
   &[data-state='good'] {
-    .battery-body  { stroke: #00e676; }
-    .battery-cap   { fill: #00e676; }
-    .battery-fill  { fill: #00e676; }
+    .battery-body  { stroke: var(--status-good); }
+    .battery-cap   { fill: var(--status-good); }
+    .battery-fill  { fill: var(--status-good); }
   }
 
   &[data-state='warn'] {
-    .battery-body  { stroke: #ffb300; }
-    .battery-cap   { fill: #ffb300; }
-    .battery-fill  { fill: #ffb300; }
+    .battery-body  { stroke: var(--status-battery-warn); }
+    .battery-cap   { fill: var(--status-battery-warn); }
+    .battery-fill  { fill: var(--status-battery-warn); }
   }
 
   &[data-state='low'] {
-    .battery-body  { stroke: #ff5252; }
-    .battery-cap   { fill: #ff5252; }
-    .battery-fill  { fill: #ff5252; }
+    .battery-body  { stroke: var(--status-battery-low); }
+    .battery-cap   { fill: var(--status-battery-low); }
+    .battery-fill  { fill: var(--status-battery-low); }
   }
 }
 
@@ -297,8 +294,8 @@ a:focus-visible {
   left: 1.5rem;
   z-index: 1002;  // above overlay (1000) and eeg-controls (1001)
   width: 296px;
-  background: rgba(0, 0, 0, 0.75);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: var(--surface-panel);
+  border: 1px solid var(--border-hairline);
   padding: 0.6rem;
   display: flex;
   flex-direction: column;
@@ -322,14 +319,14 @@ a:focus-visible {
 .bio-label {
   font-size: 0.65rem;
   letter-spacing: 0.08em;
-  color: rgba(255, 255, 255, 0.45);
+  color: var(--text-label);
   text-transform: uppercase;
   flex-shrink: 0;
 }
 
 .bio-hr {
   font-size: 0.65rem;
-  color: rgba(255, 255, 255, 0.5);
+  color: var(--text-muted);
   letter-spacing: 0.04em;
 }
 
@@ -356,10 +353,27 @@ a:focus-visible {
   gap: 0.3rem;
 }
 
+// Legend glyph colors — sourced from the channel/scale tokens (see _tokens.scss)
+// so trace, legend, and stylesheet share one definition.
+.glyph-delta { color: var(--band-delta); }
+.glyph-theta { color: var(--band-theta); }
+.glyph-alpha { color: var(--band-alpha); }
+.glyph-beta  { color: var(--band-beta); }
+.glyph-gamma { color: var(--band-gamma); }
+
+.glyph-mse-1 { color: var(--mse-1); }
+.glyph-mse-2 { color: var(--mse-2); }
+.glyph-mse-3 { color: var(--mse-3); }
+.glyph-mse-4 { color: var(--mse-4); }
+.glyph-mse-5 { color: var(--mse-5); }
+
+.glyph-imu-accel { color: var(--imu-accel); }
+.glyph-imu-gyro  { color: var(--imu-gyro); }
+
 .bio-band-val {
   font-size: 0.6rem;
   font-variant-numeric: tabular-nums;
-  color: rgba(255, 255, 255, 0.55);
+  color: var(--text-value);
   min-width: 2.4rem;
 }
 
@@ -389,7 +403,7 @@ a:focus-visible {
 .bio-mse-val {
   font-size: 0.6rem;
   font-variant-numeric: tabular-nums;
-  color: rgba(255, 255, 255, 0.55);
+  color: var(--text-value);
   min-width: 2.4rem;
 }
 
@@ -410,7 +424,7 @@ a:focus-visible {
   flex-direction: column;
   justify-content: space-between;
   font-size: 0.5rem;
-  color: rgba(255, 255, 255, 0.3);
+  color: var(--text-axis);
   font-variant-numeric: tabular-nums;
   line-height: 1;
   padding: 1px 0;    // align with top/bottom pixel rows
@@ -426,7 +440,7 @@ a:focus-visible {
 // ── Entrainment meter ──────────────────────────────────────────────────────
 .bio-entrain-value {
   font-size: 0.6rem;
-  color: rgba(255, 255, 255, 0.55);
+  color: var(--text-value);
   font-variant-numeric: tabular-nums;
 }
 
@@ -441,7 +455,7 @@ a:focus-visible {
 .bio-entrain-fill {
   height: 100%;
   width: 0%;
-  background: linear-gradient(90deg, #34d399, #60a5fa);
+  background: linear-gradient(90deg, var(--entrain-from), var(--entrain-to));
   border-radius: 1.5px;
   transition: width 0.3s ease-out;
 }
@@ -472,17 +486,15 @@ a:focus-visible {
   background: rgba(255, 255, 255, 0.2);
   transition: background 0.4s;
 
-  &.good     { background: #00e676; box-shadow: 0 0 4px #00e676; }
-  &.marginal { background: #ffee58; box-shadow: 0 0 4px #ffee58; }
-  &.poor     { background: #ef5350; box-shadow: 0 0 4px #ef5350; }
+  &.good     { background: var(--status-good);     box-shadow: 0 0 4px var(--status-good); }
+  &.marginal { background: var(--status-marginal); box-shadow: 0 0 4px var(--status-marginal); }
+  &.poor     { background: var(--status-poor);     box-shadow: 0 0 4px var(--status-poor); }
 }
 
-.bio-toggle,
-.bio-fullscreen,
 .bio-record {
   background: none;
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  color: rgba(255, 255, 255, 0.5);
+  border: 1px solid var(--border-button);
+  color: var(--text-muted);
   font-size: 0.75rem;
   padding: 0.2rem 0.45rem;
   cursor: pointer;
@@ -496,30 +508,23 @@ a:focus-visible {
     border-color: rgba(255, 255, 255, 0.6);
   }
 
+  // Record uses red when active
   &.active {
-    color: #00e676;
-    border-color: #00e676;
-  }
-}
-
-.bio-record {
-  // Record uses red when active instead of green
-  &.active {
-    color: #ef5350;
-    border-color: #ef5350;
+    color: var(--status-record);
+    border-color: var(--status-record);
     animation: record-pulse 1.4s ease-in-out infinite;
   }
 }
 
 @keyframes record-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 83, 80, 0.5); }
-  50%      { box-shadow: 0 0 0 4px rgba(239, 83, 80, 0); }
+  0%, 100% { box-shadow: 0 0 0 0 rgba(var(--status-record-rgb), 0.5); }
+  50%      { box-shadow: 0 0 0 4px rgba(var(--status-record-rgb), 0); }
 }
 
 .bio-record-time {
   font-size: 0.7rem;
   font-variant-numeric: tabular-nums;
-  color: #ef5350;
+  color: var(--status-record);
   letter-spacing: 0.05em;
   min-width: 2.8rem;
 
@@ -528,17 +533,15 @@ a:focus-visible {
 
 .bio-mse-value {
   font-size: 0.6rem;
-  color: rgba(255, 255, 255, 0.55);
+  color: var(--text-value);
   font-variant-numeric: tabular-nums;
 }
 
 // ── Fullscreen bio panel ──────────────────────────────────────────────────────
-// Full-viewport data view. Hides the Three.js canvas and lays out all bio
-// sections in a responsive grid. CSS-scales canvases (image-rendering: pixelated
-// on spectrograms keeps columns crisp; webgl-plot line traces scale smoothly).
+// Full-viewport data view. Lays out all bio sections in a responsive grid.
+// CSS-scales canvases (image-rendering: pixelated on spectrograms keeps columns
+// crisp; webgl-plot line traces scale smoothly).
 body.fullscreen-bio {
-  .content { display: none; }
-
   .bio-panel {
     position: fixed;
     inset: 0;
@@ -577,307 +580,20 @@ body.fullscreen-bio {
   // First section (EEG) spans full width for clarity
   .bio-section:first-child { grid-column: 1 / -1; }
 
+  // Larger, more legible text throughout the full-screen data view.
+  .bio-label            { font-size: 0.9rem; }
+  .bio-hr,
+  .bio-entrain-value,
+  .bio-mse-value,
+  .bio-imu-legend       { font-size: 0.85rem; }
+  .bio-band-legend,
+  .bio-mse-legend       { font-size: 0.9rem; }
+  .bio-band-val,
+  .bio-mse-val          { font-size: 0.8rem; min-width: 3rem; }
+  .bio-spec-axis        { font-size: 0.7rem; min-width: 1.6rem; }
+
   // Keep controls on top and clickable
   .eeg-controls { z-index: 1005; }
-}
-
-// ── Jellyfin ──────────────────────────────────────────────────────────────────
-
-.controls-jellyfin-btn {
-  background: none;
-  border: 1px solid rgba(255, 255, 255, 0.4);
-  color: var(--color-text);
-  font-family: inherit;
-  font-size: 0.75rem;
-  letter-spacing: 0.05em;
-  padding: 0.4rem 0.8rem;
-  cursor: pointer;
-  transition: border-color 0.2s, background 0.2s;
-
-  &:hover {
-    border-color: var(--color-text);
-    background: rgba(255, 255, 255, 0.1);
-  }
-}
-
-#jellyfin-modal {
-  position: fixed;
-  inset: 0;
-  z-index: 2000;
-  background: rgba(0, 0, 0, 0.6);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-
-  &[hidden] { display: none; }
-}
-
-#jellyfin-dialog {
-  background: #0e0e0e;
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  width: min(420px, calc(100vw - 2rem));
-  max-height: 80vh;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.jellyfin-dialog-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0.75rem 1rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  flex-shrink: 0;
-}
-
-.jellyfin-dialog-title {
-  font-size: 0.8rem;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.6);
-}
-
-.jellyfin-close-btn {
-  background: none;
-  border: none;
-  color: rgba(255, 255, 255, 0.4);
-  font-size: 1.25rem;
-  line-height: 1;
-  cursor: pointer;
-  padding: 0 0.2rem;
-  transition: color 0.15s;
-
-  &:hover { color: var(--color-text); }
-}
-
-// Login view
-
-#jellyfin-login {
-  padding: 1rem;
-  overflow-y: auto;
-}
-
-#jellyfin-login-form {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
-
-.jellyfin-field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-
-  label {
-    font-size: 0.7rem;
-    letter-spacing: 0.06em;
-    color: rgba(255, 255, 255, 0.45);
-    text-transform: uppercase;
-  }
-
-  input {
-    background: rgba(255, 255, 255, 0.05);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    color: var(--color-text);
-    font-family: inherit;
-    font-size: 0.8rem;
-    padding: 0.45rem 0.6rem;
-    outline: none;
-    transition: border-color 0.2s;
-
-    &:focus { border-color: rgba(255, 255, 255, 0.5); }
-    &::placeholder { color: rgba(255, 255, 255, 0.2); }
-  }
-}
-
-.jellyfin-toggle-label {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: 0.75rem;
-  color: rgba(255, 255, 255, 0.5);
-  cursor: pointer;
-  user-select: none;
-
-  input[type='checkbox'] { cursor: pointer; }
-}
-
-.jellyfin-error {
-  font-size: 0.72rem;
-  color: #ef5350;
-  margin: 0;
-  line-height: 1.4;
-  min-height: 1em;
-}
-
-#jellyfin-submit {
-  background: none;
-  border: 1px solid rgba(255, 255, 255, 0.4);
-  color: var(--color-text);
-  font-family: inherit;
-  font-size: 0.8rem;
-  letter-spacing: 0.05em;
-  padding: 0.5rem 1rem;
-  cursor: pointer;
-  align-self: flex-start;
-  transition: border-color 0.2s, background 0.2s;
-
-  &:hover:not(:disabled) {
-    border-color: var(--color-text);
-    background: rgba(255, 255, 255, 0.1);
-  }
-
-  &:disabled { opacity: 0.4; cursor: default; }
-}
-
-// Browser view
-
-#jellyfin-browser {
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  flex: 1;
-}
-
-.jellyfin-browser-toolbar {
-  display: flex;
-  gap: 0.5rem;
-  padding: 0.75rem 1rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  flex-shrink: 0;
-
-  #jellyfin-search {
-    flex: 1;
-    background: rgba(255, 255, 255, 0.05);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    color: var(--color-text);
-    font-family: inherit;
-    font-size: 0.8rem;
-    padding: 0.4rem 0.6rem;
-    outline: none;
-    transition: border-color 0.2s;
-
-    &:focus { border-color: rgba(255, 255, 255, 0.45); }
-    &::placeholder { color: rgba(255, 255, 255, 0.2); }
-    // hide default search cancel button (webkit)
-    &::-webkit-search-cancel-button { display: none; }
-  }
-
-  #jellyfin-disconnect {
-    background: none;
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    color: rgba(255, 255, 255, 0.45);
-    font-family: inherit;
-    font-size: 0.72rem;
-    padding: 0.4rem 0.7rem;
-    cursor: pointer;
-    transition: border-color 0.2s, color 0.2s;
-
-    &:hover {
-      border-color: rgba(255, 255, 255, 0.5);
-      color: var(--color-text);
-    }
-  }
-}
-
-#jellyfin-track-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  overflow-y: auto;
-  flex: 1;
-}
-
-.jellyfin-track {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 1rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-  transition: background 0.15s;
-
-  &:hover { background: rgba(255, 255, 255, 0.04); }
-}
-
-.jellyfin-track-info {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-}
-
-.jellyfin-track-title {
-  font-size: 0.8rem;
-  color: var(--color-text);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.jellyfin-track-meta {
-  font-size: 0.68rem;
-  color: rgba(255, 255, 255, 0.4);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.jellyfin-track-dur {
-  font-size: 0.7rem;
-  color: rgba(255, 255, 255, 0.3);
-  font-variant-numeric: tabular-nums;
-  flex-shrink: 0;
-}
-
-.jellyfin-play-btn {
-  background: none;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  color: rgba(255, 255, 255, 0.5);
-  font-size: 0.65rem;
-  padding: 0.25rem 0.5rem;
-  cursor: pointer;
-  flex-shrink: 0;
-  transition: border-color 0.15s, color 0.15s;
-
-  &:hover {
-    border-color: rgba(255, 255, 255, 0.6);
-    color: var(--color-text);
-  }
-}
-
-.jellyfin-load-more {
-  background: none;
-  border: none;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
-  color: rgba(255, 255, 255, 0.35);
-  font-family: inherit;
-  font-size: 0.72rem;
-  padding: 0.6rem;
-  width: 100%;
-  cursor: pointer;
-  flex-shrink: 0;
-  transition: color 0.15s, background 0.15s;
-
-  &[hidden] { display: none; }
-  &:hover { color: var(--color-text); background: rgba(255, 255, 255, 0.04); }
-  &:disabled { opacity: 0.3; cursor: default; }
-}
-
-.jellyfin-list-error {
-  padding: 0.75rem 1rem;
-  font-size: 0.75rem;
-  color: #ef5350;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-
-.demo-hint {
-  font-size: 0.8rem;
-  color: rgba(255, 255, 255, 0.5);
-  margin: 0;
-  text-align: center;
 }
 
 .browser-warning {
@@ -892,14 +608,4 @@ body.fullscreen-bio {
   color: rgba(255, 255, 255, 0.7);
   line-height: 1.4;
   z-index: 200;
-}
-
-.dg.ac {
-  display: none;
-}
-
-@media screen and (min-width: 53em) {
-  .dg.ac {
-    display: block;
-  }
 }

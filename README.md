@@ -1,26 +1,26 @@
 # Nouscope
 
-An audio-reactive 3D particle visualizer with optional Muse EEG/PPG/IMU biometric integration, built with Three.js and WebGL.
+A Muse EEG/PPG/IMU biometric visualizer with optional local-audio playback and real-time neural-entrainment analysis, built with Web Bluetooth and WebGL.
 
-[![Nouscope — audio-reactive particle visualizer with optional EEG panel](screenshot.png)](https://soundtrip.health/nouscope/)
+[![Nouscope — Muse EEG/PPG/IMU biometric visualizer](screenshot.png)](https://soundtrip.health/nouscope/)
 
 **[Live demo](https://soundtrip.health/nouscope/)**
 
 ## Features
 
-- Audio-reactive 3D particle system (Three.js / WebGL)
-- Audio BPM beat detection — optional beat-synced rotation tweens and cylinder mesh resets (**Auto Rotate** / **Auto Mix**)
-- Five EEG frequency bands (delta, theta, alpha, beta, gamma) mapped to visual parameters
-- PPG heart rate detection with per-beat warm color pulse
-- IMU head-pose control — tilt your head to rotate the particle field
-- Upload audio, add `public/audio/demo.mp3` for a one-click start, or stream from a [Jellyfin](https://jellyfin.org/) server
-- dat.GUI controls for colors, audio band gains, per-parameter bio mapping, and IMU strength
+- Live bio-data panel: 4-channel EEG traces, EEG spectrogram (8–50 Hz) and delta/theta panel (0.5–8 Hz), relative band powers (delta, theta, alpha, gamma), PPG heart-rate waveform, and IMU accelerometer/gyroscope traces
+- Real-time signal quality per channel
+- Multiscale entropy (MSE) EEG complexity readout
+- **EEG–music entrainment**: load a local audio file and Nouscope compares the music-tempo tempogram against the EEG tempogram to estimate how strongly the brain entrains to the beat
+- PPG heart-rate detection (MSPTDfast)
+- IMU head-pose estimation
+- Full-screen data view and JSONL session recording (raw EEG/PPG/IMU + derived metrics)
 
 ## Browser Support
 
 | Feature | Chrome | Edge | Firefox | Safari |
 |---------|--------|------|---------|--------|
-| Visualizer | ✅ | ✅ | ✅ | ✅ |
+| Bio-data panel / audio | ✅ | ✅ | ✅ | ✅ |
 | EEG (Web Bluetooth) | ✅ | ✅ | ❌ | ❌ |
 
 **Note:** EEG/Bluetooth features require Chrome or Edge. HTTPS is required for Web Bluetooth in production.
@@ -41,105 +41,61 @@ npm run dev
 
 Open `http://localhost:5173` (any modern browser; use Chrome or Edge to develop or test Web Bluetooth / EEG).
 
-### Demo Track
-
-Place a royalty-free MP3 at `public/audio/demo.mp3`. Suggested sources:
-
-- [Freesound.org](https://freesound.org) — filter by CC0
-- [Free Music Archive](https://freemusicarchive.org) — filter by CC0
-
-If `demo.mp3` is absent, the app prompts the user to upload a file.
-
 ## Usage
 
-1. Click anywhere to start with the demo track (if `public/audio/demo.mp3` exists), use **↑ Track** to upload a file, or **☁ Jellyfin** to pick a track from your server
-2. The particle field reacts to audio in real time
-3. Optionally click **Connect EEG** to pair a Muse headset via Bluetooth
-4. Use the dat.GUI panel (top-right, desktop only) to adjust colors, **AUDIO** gains, **MAPPING** (which biometric drives each visual parameter), and **VISUALIZER** options including **IMU Strength**
+1. Click **Connect EEG** to pair a Muse headset via Bluetooth.
+2. Click **◉** to open the live bio-data panel (or **⛶** for the full-screen data view).
+3. Optionally click **↑ Track** to load a local audio file. Playback enables the **AUDIO TEMPO** panel and the EEG–music entrainment meter. Use **⏸** to pause/resume.
+4. Click **⏺** to record the session to a timestamped `.jsonl` file.
+
+The app works with EEG only (no audio) or with audio only (the tempogram is shown but the entrainment index needs both an EEG signal and playing audio).
 
 ## EEG Integration
 
 Requires a [Muse](https://choosemuse.com/) EEG headset (Muse 2 or Muse S) and Chrome or Edge.
 
-| EEG band | Frequency (approx.) | Default in **MAPPING** (changeable per parameter) |
-|----------|---------------------|------------------------------------------------------|
-| Delta (1–4 Hz) | Deep sleep | Not mapped by default — assign in **MAPPING** if desired |
-| Theta (4–8 Hz) | Drowsy / relaxed | Particle size |
-| Alpha (8–13 Hz) | Calm / idle | Spread radius (`maxDistance`) |
-| Beta (13–30 Hz) | Focused / alert | Turbulence (`offsetGain`) and field chaos (`frequency`) |
-| Gamma (30–50 Hz) | High cognition | Amplitude and hue shift |
+| EEG band | Frequency (approx.) | Mental state |
+|----------|---------------------|--------------|
+| Delta (1–4 Hz) | Deep sleep | Excluded from the relative-power panel by default (movement-prone; would swamp higher bands) |
+| Theta (4–8 Hz) | Drowsy / relaxed | |
+| Alpha (8–13 Hz) | Calm / idle | |
+| Beta (13–30 Hz) | Focused / alert | |
+| Gamma (30–50 Hz) | High cognition | |
 
-**PPG / Heart Rate** — detects heartbeats from the Muse's infrared sensor and drives a warm color flush on each beat.
+**PPG / Heart Rate** — detects heartbeats from the Muse's infrared sensor.
 
-**IMU / Head Pose** — accelerometer pitch and roll map to particle field rotation when **Head Control (IMU)** is enabled in the GUI.
-
-## Customization
-
-Main controls in the dat.GUI panel:
-
-| Folder | Control | Effect |
-|--------|---------|--------|
-| PARTICLES | Start Color / End Color | Gradient colors across displacement distance |
-| VISUALIZER | Auto Mix | On random beats, rebuild a new randomized cylinder mesh |
-| VISUALIZER | Auto Rotate | GSAP-driven rotation tweens on beats |
-| VISUALIZER | Head Control (IMU) | Route IMU pitch/roll to rotation |
-| VISUALIZER | IMU Strength | Scale (0–3) head-tilt → rotation |
-| VISUALIZER | Reset Cylinder | Manually reset to cylinder geometry |
-| AUDIO | Bass / Mid / High Gain | Per-band audio contribution (0–2) |
-| MAPPING | Amplitude, Turbulence, … | Per visual parameter: **Source** (EEG band, `hr`, or none) + **Weight** |
-
-### Shader Uniforms
-
-| Uniform | Driven by (defaults) | Effect |
-|---------|------------------------|--------|
-| `amplitude` | audio `high` × EEG **gamma** (MAPPING) | particle displacement intensity |
-| `offsetGain` | audio `mid` × EEG **beta** (turbulence) | turbulence / z-oscillation |
-| `frequency` | GSAP base × EEG **beta** (field chaos) | curl field scale / chaos |
-| `size` | base × EEG **theta** | base particle size |
-| `maxDistance` | base × EEG **alpha** | displacement falloff radius |
-| `hueShift` | EEG **gamma** | HSV hue rotation of palette |
-| `heartPulse` | **hr** mapping × PPG phase | warm reddish color flush |
+**IMU / Head Pose** — accelerometer pitch and roll are estimated and plotted alongside the raw gyroscope traces.
 
 ## Developer Guide
 
-For a detailed explanation of the signal processing algorithms, shader math, and biometric → visual parameter mappings, see [`docs/algorithms.md`](docs/algorithms.md).
+For a detailed explanation of the signal-processing algorithms (EEG band powers, PPG detection, entrainment index, multiscale entropy), see [`docs/algorithms.md`](docs/algorithms.md).
 
 ## Architecture
 
 ```
 src/js/
-├── index.js                  — entry point, instantiates App
-├── App.js                    — scene, camera, renderer, managers, render loop
+├── index.js                    — entry point, instantiates App
+├── App.js                      — managers, UI wiring, update loop
 ├── managers/
-│   ├── AudioManager.js       — audio loading (File or URL), freq band extraction
-│   ├── BPMManager.js         — BPM detection, beat event dispatcher
-│   ├── EEGManager.js         — Muse BT, EEG bands, PPG heart rate, IMU head pose
-│   └── JellyfinManager.js    — Jellyfin auth, browse, stream URLs
-├── ui/
-│   ├── BioDataDisplay.js     — live EEG / PPG / IMU / spectrogram panel
-│   └── JellyfinBrowser.js    — modal library browser
-└── entities/
-    ├── ReactiveParticles.js  — ShaderMaterial, GSAP tweens, audio/EEG mapping
-    └── glsl/
-        ├── vertex.glsl       — simplex noise curl field, particle displacement
-        └── fragment.glsl     — circular point shape, distance color gradient, heartPulse
+│   ├── AudioManager.js         — audio loading + spectral-flux novelty for entrainment
+│   ├── BPMManager.js           — tempo detection (bpmValue for recording metadata)
+│   ├── EEGManager.js           — Muse BT, EEG bands, PPG heart rate, IMU head pose
+│   ├── EntrainmentManager.js   — audio/EEG tempograms + entrainment index
+│   ├── ComplexityManager.js    — multiscale entropy (MSE) on EEG
+│   └── RecordingManager.js     — JSONL session recorder
+└── ui/
+    └── BioDataDisplay.js       — live EEG / PPG / IMU / spectrogram / entrainment panel
 ```
 
-### Audio → Visual Pipeline
-
-Each frame (`App.update()`): `EEGManager.update()` (heart phase, etc.) → `ReactiveParticles.update()` (maps latest audio + EEG to uniforms; reads `AudioManager.frequencyData` from the **previous** frame’s `AudioManager.update()`) → `AudioManager.update()` refreshes FFT bands for the **next** frame → render.
-
-On each BPM beat, `onBPMBeat()` randomly (30% each) triggers cylinder resets (`resetMesh()` → `createCylinderMesh()`) and/or rotation tweens when the corresponding **VISUALIZER** toggles are on.
+There is no 3D scene — the bio-data panel (webgl-plot line traces + 2D canvas heatmaps) is the visualization.
 
 ## Credits
 
-- Original particle visualizer concept and tutorial: [Tiago Canzian](https://github.com/tgcnzn/Interactive-Particles-Music-Visualizer)
 - EEG/PPG/IMU integration: [Soundtrip](https://github.com/soundtrip-health)
 - [muse-js](https://github.com/soundtrip-health/muse-js) — Web Bluetooth Muse SDK
 - [web-audio-beat-detector](https://github.com/chrisguttandin/web-audio-beat-detector) — BPM detection
-- [Three.js](https://threejs.org) — 3D rendering
-- [GSAP](https://greensock.com/gsap/) — animation
-- Simplex noise: [Ian McEwan / Ashima Arts](https://github.com/ashima/webgl-noise)
+- [webgl-plot](https://github.com/danchitnis/webgl-plot) — line plotting
+- [Three.js](https://threejs.org) — Web Audio helpers (AudioListener / AudioAnalyser)
 
 ## License
 

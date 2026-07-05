@@ -1,70 +1,59 @@
 # Nouscope — Algorithm & Signal Processing Guide
 
-This document explains the key algorithms that drive the Nouscope visualization: how raw audio and biometric signals are processed into the numbers that control the shaders, and exactly how those numbers map to visual parameters. Intended for developers (human or AI) modifying the internals.
+This document explains the key algorithms that drive Nouscope: how raw biometric signals (and an optional audio track) are processed into the numbers rendered in the live bio-data panel — which is itself the visualization. Intended for developers (human or AI) modifying the internals.
 
 ---
 
 ## Table of Contents
 
-1. [Audio Frequency Analysis](#1-audio-frequency-analysis)
-2. [BPM Detection & Beat Events](#2-bpm-detection--beat-events)
+1. [Audio FFT & Spectral-Flux Novelty](#1-audio-fft--spectral-flux-novelty)
+2. [BPM Detection](#2-bpm-detection)
 3. [EEG Spectral Band Powers](#3-eeg-spectral-band-powers)
 4. [PPG Heart Rate Detection](#4-ppg-heart-rate-detection)
 5. [IMU Head Pose Estimation](#5-imu-head-pose-estimation)
-6. [Parameter Mapping — Biometrics → Shader Uniforms](#6-parameter-mapping--biometrics--shader-uniforms)
-7. [Vertex Shader — Curl Noise Displacement](#7-vertex-shader--curl-noise-displacement)
-8. [Fragment Shader — Color & Heartbeat Flush](#8-fragment-shader--color--heartbeat-flush)
-9. [Beat Reactions — Geometry & Rotation](#9-beat-reactions--geometry--rotation)
-10. [EEG Spectrogram Display](#10-eeg-spectrogram-display)
-11. [EEG–Music Entrainment Index](#6--eegmusic-entrainment-index)
-12. [EEG Complexity — Multiscale Entropy](#7--eeg-complexity--multiscale-entropy)
-13. [Session Recording — JSONL Export](#8--session-recording--jsonl-export)
+6. [EEG Spectrogram Display](#6-eeg-spectrogram-display)
+7. [EEG–Music Entrainment Index](#6--eegmusic-entrainment-index)
+8. [EEG Complexity — Multiscale Entropy](#7--eeg-complexity--multiscale-entropy)
+9. [Session Recording — JSONL Export](#8--session-recording--jsonl-export)
 
 ---
 
-## 1. Audio Frequency Analysis
+## 1. Audio FFT & Spectral-Flux Novelty
 
 **File:** `src/js/managers/AudioManager.js`
 
-Three.js wraps the Web Audio API's `AnalyserNode`. The analyser runs an FFT of size 1024, yielding 512 frequency bins. Each bin covers `sampleRate / FFT_SIZE` Hz (typically `44100 / 1024 ≈ 43 Hz/bin`).
+Audio is optional. When a local file is loaded and playing, its only job is to feed the EEG–music entrainment analysis (Section §6). `AudioManager` does no frequency-band extraction — the former `low`/`mid`/`high` bands, per-band gains, and `normalizeValue` have been removed.
 
-`getFrequencyData()` returns unsigned bytes (0–255), where 255 ≈ 0 dBFS. These are averaged over three fixed Hz ranges and normalized to 0–1:
+Three.js wraps the Web Audio API's `AnalyserNode`. The analyser runs an FFT of size 1024, yielding 512 magnitude bins. Each frame, `collectAudioData()` copies the current bins into `frequencyArray` via `getFrequencyData()` (unsigned bytes, 0–255).
 
-| Band | Frequency range | Visual role |
-|------|----------------|-------------|
-| `low` | 10–250 Hz | Time speed, beat energy |
-| `mid` | 250–2000 Hz | Turbulence (`offsetGain`) |
-| `high` | 2000–20000 Hz | Displacement amplitude |
+`_sampleNovelty()` then computes a **half-wave rectified spectral flux** from successive FFT frames:
 
-**Bin calculation** (computed fresh each frame from actual sample rate):
 ```js
-binIndex = Math.floor(hz * bufferLength / audioContext.sampleRate)
+flux = Σ max(0, currentMag[i] - prevMagnitudes[i])   for i = 0..511
 ```
 
-**Normalization:**
-```js
-normalizeValue(value) { return value / 255 }
-```
+Each novelty sample is pushed with a timestamp into a ring buffer (`noveltyRing`, `NOVELTY_RING_LEN = 768` ≈ 12.8 s at 60 fps). `EntrainmentManager` resamples this ring to a uniform grid for its audio tempogram; the full derivation is in [Section §6, Stage 1](#6--eegmusic-entrainment-index).
 
-`AudioManager.update()` is called every animation frame; `frequencyData.low/mid/high` are updated in place.
+`AudioManager.update()` runs `collectAudioData()` + `_sampleNovelty()` every frame while playing.
+
+### Novelty source: file or live microphone
+
+The novelty curve can be driven by either of two mutually-exclusive sources, selected by `AudioManager.source` (`'buffer'` | `'mic'`):
+
+- **`'buffer'`** — a decoded local file, played (looped) via `THREE.Audio`; magnitudes read from the `THREE.AudioAnalyser` (`getFrequencyData()`).
+- **`'mic'`** — live microphone input. `getUserMedia({ audio })` (with `echoCancellation`/`noiseSuppression`/`autoGainControl` disabled so the spectrum is unmodified) feeds a `MediaStreamAudioSourceNode → AnalyserNode`. The analyser is **not** connected to the context destination, so capture is silent (analysis only, no feedback). Magnitudes are read with `getByteFrequencyData()`.
+
+Both paths yield 0–255 byte magnitudes over the same 512 bins, so `_sampleNovelty()` and everything downstream (tempogram, entrainment index) are identical regardless of source. BPM detection is skipped for the live-mic source — there is no finite buffer to analyze, and the entrainment index derives its own tempograms and does not require it.
 
 ---
 
-## 2. BPM Detection & Beat Events
+## 2. BPM Detection
 
 **File:** `src/js/managers/BPMManager.js`
 
-BPM is detected once at startup by passing the fully decoded `AudioBuffer` to `web-audio-beat-detector`'s `guess()`. This runs offline (not in real time) and returns a single BPM estimate.
+BPM is detected once at startup by passing the fully decoded `AudioBuffer` to `web-audio-beat-detector`'s `guess()`. This runs offline (not in real time) and returns a single BPM estimate. Detection falls back to **120 BPM** if `guess()` throws.
 
-After detection, a `setInterval` fires a Three.js `'beat'` event at the detected interval:
-
-```
-interval = 60000 / bpm  (milliseconds)
-```
-
-Falls back to 120 BPM if `guess()` throws. The interval-based approach means beats stay locked to the initial estimate for the full track — there is no adaptive re-detection.
-
-`getBPMDuration()` returns the interval in ms; `ReactiveParticles` uses it to set GSAP tween durations relative to musical tempo.
+The result is stored via `setBPM()` on `bpmValue` and passed to any active recording (`App.recordingManager?.recordMusicTempo(bpm)`). It surfaces in the recording as the `music` record and the `audioBpm` field of the `meta` header line (Section §8). No beat events are dispatched and there is no beat-interval timer — the value exists purely as tempo metadata for offline analysis.
 
 ---
 
@@ -142,18 +131,18 @@ The **first** refit uses instant adoption (`smooth = 1.0`) so the model immediat
 
 ### Stage 5 — Aperiodic normalization → relative output
 
-Each band's power is divided by the expected aperiodic power at its representative frequency. Only bands that are **actively mapped** to a visualizer parameter (via `ReactiveParticles.bioMapping`) participate in the normalisation sum; unmapped bands are zeroed out:
+Each band's power is divided by the expected aperiodic power at its representative frequency. Only the bands in `EEGManager.normalizeBands` participate in the normalisation sum; bands outside the set are zeroed out:
 
 ```
 norm_band = raw_band / 10^(a + b · log₁₀(f_center))   [for active bands only]
-norm_band = 0                                            [for inactive/unmapped bands]
+norm_band = 0                                            [for inactive bands]
 
 Representative frequencies: delta→2 Hz, theta→6, alpha→10, beta→20, gamma→40
 ```
 
-`ReactiveParticles` maintains `EEGManager.normalizeBands` (a `Set` of band name strings). It is initialised from the default `bioMapping` at GUI creation and updated whenever the user changes a Source dropdown. This prevents high-power but unmapped bands (most commonly delta, which tends to dominate the 1/f spectrum) from consuming a disproportionate share of the normalised total.
+`normalizeBands` is a fixed `Set` on `EEGManager`, defaulting to `{theta, alpha, beta, gamma}`. **Delta is excluded by default** because its large, movement-prone power would otherwise swamp the higher bands and consume a disproportionate share of the normalised total. Edit this set to change which bands appear in the EEG Bands panel.
 
-If all sources are set to `'none'`, `normalizeBands` falls back to the full set so output stays meaningful.
+If the active bands sum to zero (e.g. before any real signal), the output falls back to an equal-weight split across the active bands so it stays meaningful.
 
 This preserves sustained brain-state information: a genuinely elevated oscillation (e.g. strong alpha during eyes-closed) receives a proportionally larger share after 1/f correction, and this persists for as long as the state holds — there is no adaptive baseline that would suppress sustained changes back to zero.
 
@@ -161,7 +150,7 @@ Before the model has converged (`AP_MIN_REFITS = 3` refits, ≈ 15 s), `bandPowe
 
 ### Stage 6 — Temporal smoothing
 
-Three layers of smoothing prevent the discrete ~2 Hz analysis windows from producing staircase jumps in the visualization:
+Two layers of smoothing prevent the discrete ~2 Hz analysis windows from producing staircase jumps in the EEG Bands panel:
 
 1. **Source EMA** (`EEGManager`): After aperiodic normalization, each band is EMA-smoothed in place before storing to `bandPower`:
    ```
@@ -169,19 +158,13 @@ Three layers of smoothing prevent the discrete ~2 Hz analysis windows from produ
    ```
    `BAND_SMOOTH = 0.35` at ~2 Hz update rate gives a ~1.5 s settling time, matching the perceptual timescale of EEG state changes.
 
-2. **Per-frame lerp** (`ReactiveParticles`): The viz maintains `_smoothedBands` and lerps toward the latest `bandPower` each frame:
-   ```
-   _smoothedBands[band] += EEG_LERP_RATE * (target - _smoothedBands[band])
-   ```
-   `EEG_LERP_RATE = 0.06` at 60 fps gives sub-frame interpolation between the discrete ~2 Hz updates, eliminating visual jerkiness.
-
-3. **Display lerp** (`BioDataDisplay`): The band power plot maintains `_bandSmoothed[5]` and lerps toward `bandPower` each frame:
+2. **Display lerp** (`BioDataDisplay`): The band power plot maintains `_bandSmoothed[5]` and lerps toward `bandPower` each frame:
    ```
    _bandSmoothed[i] += BAND_LERP * (target[i] - _bandSmoothed[i])
    ```
    `BAND_LERP = 0.08` at 60 fps gives ~0.5 s to 90%, producing smooth curves in the EEG Bands panel instead of staircase jumps.
 
-The three layers compose: the source EMA prevents wild jumps in the target, while the per-frame lerps smoothly track that target at display refresh rate for both the shader uniforms and the diagnostic plot.
+The two layers compose: the source EMA prevents wild jumps in the target, while the per-frame display lerp smoothly tracks that target at display refresh rate.
 
 ---
 
@@ -272,221 +255,7 @@ Both are in radians. At rest (headset upright), pitch ≈ 0 and roll ≈ 0. The 
 
 ---
 
-## 6. Parameter Mapping — Biometrics → Shader Uniforms
-
-**File:** `src/js/entities/ReactiveParticles.js`, `update()`
-
-### Audio baseline (with per-band gain)
-
-Each audio band has a gain slider (0–2). Mid and high default to 1.0 (= prior tuning); bass defaults to **0.5** for a calmer baseline animation speed.
-
-```js
-amplitude  = 0.8 + mapLinear(audio.high, 0, 0.6, -0.1, 0.2) * audioGains.high
-           // ≈ 0.7–1.0 baseline driven by high-frequency energy
-offsetGain = audio.mid * 0.6 * audioGains.mid
-           // 0–0.6 baseline driven by mid-frequency energy
-size        = BASE_SIZE  (1.1)   // audio has no size baseline
-maxDistance = BASE_MAX_DISTANCE  (1.8)  // audio has no maxDistance baseline
-```
-
-`time` is incremented each frame at a rate driven by `audio.low`:
-```js
-t = mapLinear(audio.low, 0.6, 1.0, 0.2, 0.5)
-time += max(0.01, clamp(t, 0.2, 0.5) * audioGains.bass)
-```
-Higher bass → faster overall animation speed. Floor of 0.01 keeps animation ticking at low gain.
-
-### Bio mapping (user-configurable)
-
-Each viz parameter has an independently configurable bio source and weight. Most parameters use **multiplicative** scaling so that EEG modulates the audio reactivity rather than simply adding a small offset:
-
-```js
-sources = { none:0, delta, theta, alpha, beta, gamma, hr: heartPulse }
-
-// Multiplicative — EEG scales the audio-driven baseline
-amplitude  *= (1 + sources[mapping.amplitude.source]  * mapping.amplitude.weight)
-offsetGain *= (1 + sources[mapping.offsetGain.source] * mapping.offsetGain.weight)
-size       *= (1 + sources[mapping.size.source]       * mapping.size.weight)
-maxDistance *= (1 + sources[mapping.maxDistance.source] * mapping.maxDistance.weight)
-frequency   = baseFrequency * (1 + sources[mapping.frequency.source] * mapping.frequency.weight)
-
-// Direct assignment (no audio baseline to multiply)
-hueShift_uniform   = sources[mapping.hueShift.source]   * mapping.hueShift.weight
-heartPulse_uniform = sources[mapping.heartPulse.source] * mapping.heartPulse.weight
-```
-
-A focused brain (high gamma/beta) amplifies the music's visual effect; a calm brain softens it. At rest (EEG sources = 0), the multiplier is 1.0 and behavior matches audio-only mode.
-
-**Default mapping:**
-
-| Viz parameter | Default source | Weight range | Default weight | Scaling | Notes |
-|---------------|---------------|--------------|----------------|---------|-------|
-| Amplitude     | gamma         | 0.0 – 1.0   | 0.5            | ×(1+s·w) | Focus → 50% more displacement at full gamma |
-| Turbulence    | beta          | 0.0 – 2.0   | 1.0            | ×(1+s·w) | Alert → doubled turbulence |
-| Particle Size | theta         | 0.0 – 3.0   | 1.5            | ×(1+s·w) | Drowsy → 2.5× larger particles |
-| Spread Radius | alpha         | 0.0 – 2.0   | 1.0            | ×(1+s·w) | Calm → doubled spread |
-| Field Chaos   | beta          | 0.0 – 3.0   | 1.5            | ×(1+s·w) | Alert → 2.5× curl frequency (tighter vortices) |
-| Hue Shift     | gamma         | 0.0 – 0.25  | 0.12           | direct  | Focus → ~43° hue rotation at full gamma |
-| Color Flush   | hr            | 0.0 – 2.0   | 1.0            | direct  | Heart rate → warm reddish pulse |
-
-Weight slider: `min` = no contribution, `max` = full effect. Any source can be routed to any parameter — e.g. mapping `hr` to `amplitude` makes particles pulse with each heartbeat, or mapping `alpha` to `heartPulse` flushes color with calm mental states. `delta` is available as a source but has no default mapping.
-
-### IMU head control
-
-When `headControl` is enabled:
-```js
-holderObjects.rotation.x = headPose.pitch * imuStrength * 0.8
-holderObjects.rotation.y = headPose.roll  * imuStrength * 0.8
-```
-Any active GSAP rotation tweens are killed immediately. Disabling head control triggers a 1.5 s ease-out tween back to zero rotation. `imuStrength` is a 0–3 slider in the VISUALIZER GUI folder.
-
----
-
-## 7. Vertex Shader — Curl Noise Displacement
-
-**File:** `src/js/entities/glsl/vertex.glsl`
-
-The shader runs once per particle (vertex). It displaces each particle away from its base geometry position using a **curl noise** field — a divergence-free vector field derived from 2D simplex noise. Divergence-free means the flow has no sources or sinks: particles circulate without clumping or voids.
-
-### Curl computation
-
-The curl of a scalar noise field `n(x,y)` is approximated by finite differences over three axis-pairs:
-
-```glsl
-// Example for curl.x (simplified):
-a = (noise(x, y+ε) - noise(x, y-ε)) / 2ε
-b = (noise(x, z+ε) - noise(x, z-ε)) / 2ε
-curl.x = a - b
-// similarly for curl.y and curl.z
-```
-
-The noise field is scrolled through time:
-```glsl
-x += time * 0.05;  y += time * 0.05;  z += time * 0.05;
-```
-This animates the flow continuously. `frequency` scales the input coordinates, controlling how tightly coiled the flow is (higher → smaller vortices).
-
-### Displacement and blending
-
-```glsl
-vec3 target = position + (normal * 0.1) + curl(...) * amplitude;
-float d = length(position - target) / maxDistance;
-newpos = mix(position, target, pow(d, 4.0));
-```
-
-The `pow(d, 4.0)` falloff keeps particles near the surface when displacement is small — only strongly displaced particles move far — creating a "melting" effect that respects the geometry shape at low amplitude and explodes outward at high amplitude.
-
-`maxDistance` scales the normalized displacement `d`. A higher `maxDistance` (e.g. from high alpha power) means a given curl magnitude produces a smaller `d`, keeping particles closer to the surface.
-
-### Extra turbulence
-
-```glsl
-newpos.z += sin(time) * (0.1 * offsetGain);
-```
-
-A simple sinusoidal z-oscillation adds a secondary "breathing" motion driven by mid-frequency audio. This is intentionally simple — it breaks the spatial coherence of the curl field and adds perceptual complexity.
-
-### Point sizing
-
-```glsl
-gl_PointSize = size + (pow(d, 3.0) * offsetSize) * (1.0 / -mvPosition.z);
-```
-
-- Base size from `size` uniform (EEG theta-modulated)
-- Displaced particles are rendered larger: `pow(d, 3.0) * offsetSize`
-- Divided by depth (`-mvPosition.z`) gives perspective-correct shrinking with distance
-- `offsetSize` is randomized per geometry (30–60) to vary the visual density
-
-The varying `vDistance` (= `d`) is passed to the fragment shader for color mapping.
-
----
-
-## 8. Fragment Shader — Color & Heartbeat Flush
-
-**File:** `src/js/entities/glsl/fragment.glsl`
-
-### Circular point mask
-
-WebGL renders each point as a quad. The fragment shader converts it to a soft-edged circle using `gl_PointCoord` (0–1 UV within the quad):
-
-```glsl
-vec2 dist = uv - vec2(0.5);
-circle = 1.0 - smoothstep(r - r*0.01, r + r*0.01, dot(dist, dist) * 4.0);
-```
-
-`dot(dist,dist)*4.0` is equivalent to `(2·|dist|)²`, mapping the unit circle to 0 at center and 1 at the quad edge. The `smoothstep` gives a 1% soft edge.
-
-### Distance-based color gradient
-
-```glsl
-vec3 color = mix(startColor, endColor, vDistance);
-```
-
-`vDistance` is the normalized displacement magnitude from the vertex shader. Particles near their base geometry position (low displacement) receive `startColor`; maximally displaced particles receive `endColor`. This means the gradient directly encodes how much the particle is being pushed by the curl field at this moment.
-
-### EEG hue shift
-
-```glsl
-vec3 hsv = rgb2hsv(color);
-hsv.x = fract(hsv.x + hueShift);
-color = hsv2rgb(hsv);
-```
-
-The `hueShift` uniform (driven by gamma by default) rotates the entire color palette through HSV hue space. At rest (hueShift = 0), colors are unchanged. At full gamma with default weight (0.12), the palette rotates ~43° — a clearly visible shift toward warmer or cooler tones depending on the user's chosen start/end colors. The `fract()` wraps the hue angle so all values produce valid colors. RGB↔HSV conversion uses the standard Hue-Saturation-Value formulation.
-
-### Heartbeat warm flush
-
-```glsl
-vec3 pulseWarm = vec3(0.45, 0.05, 0.08);   // reddish-warm additive color
-color = mix(color, color + pulseWarm, heartPulse * 0.35);
-```
-
-At `heartPulse = 1.0` (peak systole), the color shifts by `0.35 × pulseWarm` — a warm reddish-orange tint that fades smoothly as the oscillator decays. The additive formulation means the color shift is always in the warm direction regardless of the current `startColor/endColor` setting.
-
-### Alpha
-
-```glsl
-gl_FragColor = vec4(color, circle.r * vDistance);
-```
-
-Particles are transparent near the base geometry surface (`vDistance ≈ 0`) and fully opaque when maximally displaced. Combined with the circular mask, this means only strongly displaced particles are visible, and each point fades at its edge (not at the center).
-
----
-
-## 9. Beat Reactions — Geometry & Rotation
-
-**File:** `src/js/entities/ReactiveParticles.js`, `onBPMBeat()` / `resetMesh()`
-
-On each beat event from `BPMManager`:
-
-```
-30% chance → GSAP rotation tween on holderObjects.rotation.z
-               (skipped when headControl is active)
-30% chance → geometry reset (destroyMesh → createCylinderMesh)
-```
-
-Geometry reset also triggers a GSAP tween on the base curl-field frequency:
-```js
-gsap.to(this, {
-  duration: bpmDuration * 2,
-  _baseFrequency: randFloat(0.5, 3),
-  ease: 'expo.easeInOut',
-})
-```
-
-The actual `frequency` uniform is set each frame as `_baseFrequency * (1 + eegSource * weight)`, so EEG modulates whatever frequency the beat tween is currently interpolating toward. This gradually shifts the curl field density over two beats, producing smooth visual transitions between coarse and fine-grained flow — with EEG adding a real-time layer of chaos on top.
-
-**Rotation tween duration** is randomly either:
-- `15 s` (80% chance) — slow drift, crosses multiple beats
-- `bpmDuration` (20% chance) — snaps to a new angle in exactly one beat
-
-**Geometry disposal:** `destroyMesh()` calls `geometry.dispose()` and `material.dispose()` to free GPU buffers, and kills any active GSAP tweens on the old mesh before removal. New geometry shares the same `ShaderMaterial` instance.
-
-Each `createCylinderMesh()` call randomizes radial and height segment multipliers, varying point density and texture. (`createBoxMesh()` exists in the file but is not called from the live paths.)
-
----
-
-## 10. EEG Spectrogram Display
+## 6. EEG Spectrogram Display
 
 **Files:** `src/js/managers/EEGManager.js` (`_computeSpectrum()`, `_computeSpectrumLo()`), `src/js/ui/BioDataDisplay.js` (`_updateSpectrum()`, `_updateSpectrumLo()`)
 
@@ -629,7 +398,7 @@ Inspired by Nozaradan et al. (2012) — tests whether beat-related frequencies a
 
 ### Stage 5: Integration and Display
 
-- **Bio source**: exposed as `'entrain'` in `ReactiveParticles.BIO_SOURCES`, mappable to any viz parameter through the MAPPING GUI
+- **Output**: the smoothed index is exposed as `entrainment` and logged to the `entrain` JSONL record (Section §8)
 - **Audio tempogram heatmap**: scrolling viridis heatmap in `#spec-audio-canvas` (46 bins × 1 px/bin, same auto-scaling as EEG spectrograms)
 - **Entrainment meter**: horizontal bar in bio-panel showing percentage fill
 
@@ -702,7 +471,7 @@ SampEn(m, r, N) = -ln( A / B )
 - Each scale's raw SampEn is written directly to `mseCurve[i]` on each update;
   there is no temporal smoothing, so steps in the plot reflect real 0.2 Hz
   recomputations
-- `complexity` = mean of the curve — a convenient scalar bio source
+- `complexity` = mean of the curve — a convenient scalar summary
 
 ### Update cadence
 
@@ -733,7 +502,7 @@ SampEn(m, r, N) = -ln( A / B )
 - Per-scale legend (`#mse-val-0`…`#mse-val-4`) shows the latest SampEn value for
   each τ.
 - `#bio-mse-value`: scalar `complexity` (mean of all scales) to 2 decimals
-- Bio source: `'complex'` — mappable to any viz parameter via MAPPING GUI
+- Logged to the `mse` JSONL record (per-scale `curve` + scalar `complexity`, Section §8)
 
 ### References
 

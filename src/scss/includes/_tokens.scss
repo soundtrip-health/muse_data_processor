@@ -1,0 +1,80 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// Nouscope design tokens — the single source of truth for the visual system.
+//
+// Mirrors docs/design-system.md. The WebGL data traces read the channel colors
+// from these same custom properties at runtime (src/js/ui/palette.js), so the
+// stylesheet, the HTML legends, and the plots can never drift apart.
+// ─────────────────────────────────────────────────────────────────────────────
+
+:root {
+  font-size: 16px;
+
+  // ── Ground & surfaces ──────────────────────────────────────────────────────
+  --color-bg: #000000;
+  --color-text: #fffbf5;          // warm white
+  --color-link: #fffbf5;
+  --color-link-hover: #fffbf5;
+
+  --surface-panel: rgba(0, 0, 0, 0.75);   // bio-panel scrim
+  --border-hairline: rgba(255, 255, 255, 0.12);
+  --border-button: rgba(255, 255, 255, 0.25);   // secondary buttons (record)
+  --border-control: rgba(255, 255, 255, 0.4);    // primary controls
+  --border-battery: rgba(255, 255, 255, 0.3);
+  --wash-hover: rgba(255, 255, 255, 0.1);
+
+  // ── Text opacity ramp (white on black) ─────────────────────────────────────
+  --text-strong: rgba(255, 255, 255, 0.7);   // heart-rate readout
+  --text-muted: rgba(255, 255, 255, 0.5);     // secondary values
+  --text-value: rgba(255, 255, 255, 0.55);    // numeric readouts
+  --text-label: rgba(255, 255, 255, 0.45);    // section micro-labels
+  --text-axis: rgba(255, 255, 255, 0.3);      // axis ticks
+
+  // ── EEG electrode traces ───────────────────────────────────────────────────
+  --eeg-tp9:  #4dd9ff;   // cyan
+  --eeg-af7:  #66ff80;   // green
+  --eeg-af8:  #ffa633;   // orange
+  --eeg-tp10: #e566ff;   // magenta
+
+  // ── EEG frequency bands (cool→warm = ascending frequency) ──────────────────
+  --band-delta: #a78bfa; // violet
+  --band-theta: #60a5fa; // blue
+  --band-alpha: #34d399; // green
+  --band-beta:  #fbbf24; // amber
+  --band-gamma: #f87171; // red
+
+  // ── PPG / heart ────────────────────────────────────────────────────────────
+  --ppg: #ff8080;        // salmon
+
+  // ── IMU (accel = blues, gyro = reds) ───────────────────────────────────────
+  --imu-accel-x: #4db2ff;
+  --imu-accel-y: #3380e6;
+  --imu-accel-z: #80d2ff;
+  --imu-gyro-x:  #ff6666;
+  --imu-gyro-y:  #d94d4d;
+  --imu-gyro-z:  #ff9980;
+  --imu-accel: #4fc3f7;  // legend swatch (A)
+  --imu-gyro:  #ef9a9a;  // legend swatch (G)
+
+  // ── Complexity (MSE) — violet→amber across scales τ=1 → τ=9 ─────────────────
+  --mse-1: #a78bfa;
+  --mse-2: #bc98c5;
+  --mse-3: #d1a58f;
+  --mse-4: #e6b25a;
+  --mse-5: #fbbf24;
+
+  // ── Semantic / status ──────────────────────────────────────────────────────
+  --status-good: #00e676;              // signal good, battery good
+  --status-marginal: #ffee58;          // signal marginal
+  --status-poor: #ef5350;              // signal poor
+  --status-battery-warn: #ffb300;
+  --status-battery-low: #ff5252;
+
+  --status-record: #ef5350;            // recording (shares poor's red)
+  --status-record-rgb: 239, 83, 80;    // for the pulse box-shadow alpha ramp
+  --status-mic: #ef4444;               // live mic capture
+  --status-mic-rgb: 239, 68, 68;       // for the mic-active background wash
+
+  // ── Entrainment meter (scalar accent, not a status) ────────────────────────
+  --entrain-from: #34d399;
+  --entrain-to: #60a5fa;
+}

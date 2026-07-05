@@ -1,53 +1,38 @@
-import { EventDispatcher } from 'three'
 import { guess } from 'web-audio-beat-detector'
 import App from '../App'
 
 // --- Constants ---
-const BEAT_EVENT = 'beat'
 const DEFAULT_BPM = 120
-const DEFAULT_BPM_INTERVAL_MS = 60000 / DEFAULT_BPM
 
 /**
  * BPMManager
  *
- * Detects BPM from a decoded AudioBuffer using `web-audio-beat-detector`,
- * then fires a 'beat' event at the detected interval via Three.js EventDispatcher.
- *
- * Falls back to 120 BPM if detection fails.
- *
- * @fires beat — dispatched at each detected beat interval
+ * Detects the tempo (BPM) of a decoded AudioBuffer using
+ * `web-audio-beat-detector`. The detected value is exposed as `bpmValue`
+ * (used in recording metadata / the `music` record) — no beat events are
+ * dispatched. Falls back to 120 BPM if detection fails.
  *
  * @example
  *   const mgr = new BPMManager()
- *   mgr.addEventListener('beat', () => console.log('beat!'))
  *   await mgr.detectBPM(audioBuffer)
+ *   console.log(mgr.bpmValue)
  */
-export default class BPMManager extends EventDispatcher {
+export default class BPMManager {
   constructor() {
-    super()
-    this.interval = DEFAULT_BPM_INTERVAL_MS // ms between beat events
-    this.intervalId = null
     this.bpmValue = 0
   }
 
   /**
-   * Set a new BPM value and restart the beat interval timer.
+   * Store a new BPM value and log it to any active recording.
    * @param {number} bpm
    */
   setBPM(bpm) {
     this.bpmValue = bpm
-    this.interval = 60000 / bpm
-    clearInterval(this.intervalId)
-    this.intervalId = setInterval(this.updateBPM.bind(this), this.interval)
     App.recordingManager?.recordMusicTempo(bpm)
   }
 
-  updateBPM() {
-    this.dispatchEvent({ type: BEAT_EVENT })
-  }
-
   /**
-   * Analyze an AudioBuffer to detect BPM and start the beat timer.
+   * Analyze an AudioBuffer to detect BPM.
    * Falls back to 120 BPM if detection throws.
    * @param {AudioBuffer} audioBuffer
    * @returns {Promise<void>}
@@ -59,13 +44,5 @@ export default class BPMManager extends EventDispatcher {
     } catch {
       this.setBPM(DEFAULT_BPM) // fallback if detection fails
     }
-  }
-
-  /**
-   * Returns the duration of one beat in milliseconds.
-   * @returns {number}
-   */
-  getBPMDuration() {
-    return this.interval
   }
 }

@@ -6,7 +6,7 @@
     <title>Nouscope</title>
     <meta
       name="description"
-      content="An audio-reactive 3D particle visualizer with optional Muse EEG biometric integration, built with Three.js and WebGL."
+      content="A Muse EEG/PPG/IMU biometric visualizer with optional local-audio playback and real-time neural-entrainment analysis."
     />
     <meta name="author" content="Soundtrip" />
 
@@ -14,7 +14,7 @@
     <meta property="og:title" content="Nouscope" />
     <meta
       property="og:description"
-      content="Audio-reactive 3D particle system with optional Muse EEG/PPG/IMU integration — built with Three.js and WebGL."
+      content="Muse EEG/PPG/IMU biometric visualizer with optional local-audio playback and neural-entrainment analysis."
     />
     <meta property="og:type" content="website" />
 
@@ -27,7 +27,6 @@
   </head>
   <body class="demo-1">
     <main>
-      <div class="content"></div>
       <div class="bio-panel" id="bio-panel" hidden>
         <div class="bio-section">
           <div class="bio-section-header">
@@ -90,11 +89,11 @@
           <div class="bio-bands-body">
             <canvas id="band-canvas" width="200" height="75"></canvas>
             <div class="bio-band-legend">
-              <div class="bio-band-item" id="band-item-delta"><span style="color:#a78bfa">δ</span><span class="bio-band-val" id="band-val-delta">—</span></div>
-              <div class="bio-band-item" id="band-item-theta"><span style="color:#60a5fa">θ</span><span class="bio-band-val" id="band-val-theta">—</span></div>
-              <div class="bio-band-item" id="band-item-alpha"><span style="color:#34d399">α</span><span class="bio-band-val" id="band-val-alpha">—</span></div>
-              <div class="bio-band-item" id="band-item-beta"><span style="color:#fbbf24">β</span><span class="bio-band-val" id="band-val-beta">—</span></div>
-              <div class="bio-band-item" id="band-item-gamma"><span style="color:#f87171">γ</span><span class="bio-band-val" id="band-val-gamma">—</span></div>
+              <div class="bio-band-item" id="band-item-delta"><span class="glyph-delta">δ</span><span class="bio-band-val" id="band-val-delta">—</span></div>
+              <div class="bio-band-item" id="band-item-theta"><span class="glyph-theta">θ</span><span class="bio-band-val" id="band-val-theta">—</span></div>
+              <div class="bio-band-item" id="band-item-alpha"><span class="glyph-alpha">α</span><span class="bio-band-val" id="band-val-alpha">—</span></div>
+              <div class="bio-band-item" id="band-item-beta"><span class="glyph-beta">β</span><span class="bio-band-val" id="band-val-beta">—</span></div>
+              <div class="bio-band-item" id="band-item-gamma"><span class="glyph-gamma">γ</span><span class="bio-band-val" id="band-val-gamma">—</span></div>
             </div>
           </div>
         </div>
@@ -106,11 +105,11 @@
           <div class="bio-mse-body">
             <canvas id="mse-canvas" width="200" height="75"></canvas>
             <div class="bio-mse-legend">
-              <div class="bio-mse-item"><span style="color:#a78bfa">τ=1</span><span class="bio-mse-val" id="mse-val-0">—</span></div>
-              <div class="bio-mse-item"><span style="color:#bc98c4">τ=3</span><span class="bio-mse-val" id="mse-val-1">—</span></div>
-              <div class="bio-mse-item"><span style="color:#d1a58f">τ=5</span><span class="bio-mse-val" id="mse-val-2">—</span></div>
-              <div class="bio-mse-item"><span style="color:#e6b259">τ=7</span><span class="bio-mse-val" id="mse-val-3">—</span></div>
-              <div class="bio-mse-item"><span style="color:#fbbf24">τ=9</span><span class="bio-mse-val" id="mse-val-4">—</span></div>
+              <div class="bio-mse-item"><span class="glyph-mse-1">τ=1</span><span class="bio-mse-val" id="mse-val-0">—</span></div>
+              <div class="bio-mse-item"><span class="glyph-mse-2">τ=3</span><span class="bio-mse-val" id="mse-val-1">—</span></div>
+              <div class="bio-mse-item"><span class="glyph-mse-3">τ=5</span><span class="bio-mse-val" id="mse-val-2">—</span></div>
+              <div class="bio-mse-item"><span class="glyph-mse-4">τ=7</span><span class="bio-mse-val" id="mse-val-3">—</span></div>
+              <div class="bio-mse-item"><span class="glyph-mse-5">τ=9</span><span class="bio-mse-val" id="mse-val-4">—</span></div>
             </div>
           </div>
         </div>
@@ -125,8 +124,8 @@
           <div class="bio-section-header">
             <span class="bio-label">IMU</span>
             <span class="bio-imu-legend">
-              <span style="color:#4fc3f7">A</span>
-              <span style="color:#ef9a9a">G</span>
+              <span class="glyph-imu-accel">A</span>
+              <span class="glyph-imu-gyro">G</span>
             </span>
           </div>
           <canvas id="imu-canvas" width="280" height="60"></canvas>
@@ -142,73 +141,16 @@
         </span>
         <button id="eeg-connect">Connect EEG</button>
         <span class="heart-rate-display" id="heart-rate"></span>
-        <button class="bio-toggle" id="bio-toggle" hidden title="Click to show/hide raw bio data">◉</button>
-        <button class="bio-fullscreen" id="bio-fullscreen" hidden title="Toggle full-screen data view">⛶</button>
         <button class="bio-record" id="bio-record" hidden title="Record raw data to JSONL">⏺</button>
         <span class="bio-record-time" id="bio-record-time" hidden></span>
         <button id="pause-btn" hidden title="Pause/resume playback">⏸</button>
-        <button class="controls-jellyfin-btn" id="jellyfin-btn" title="Browse Jellyfin music library">☁ Jellyfin</button>
+        <button id="mic-btn" title="Use microphone as audio source">🎤</button>
         <label class="controls-upload-btn" title="Upload audio file">
           ↑ Track
           <input type="file" id="audio-upload" accept="audio/*" />
         </label>
       </div>
 
-      <!-- Jellyfin browser modal -->
-      <div id="jellyfin-modal" hidden>
-        <div id="jellyfin-dialog">
-          <div class="jellyfin-dialog-header">
-            <span class="jellyfin-dialog-title">Jellyfin</span>
-            <button id="jellyfin-close" class="jellyfin-close-btn" title="Close">×</button>
-          </div>
-
-          <!-- Login view -->
-          <div id="jellyfin-login">
-            <form id="jellyfin-login-form" autocomplete="on">
-              <div class="jellyfin-field">
-                <label for="jellyfin-server-url">Server URL</label>
-                <input type="url" id="jellyfin-server-url" placeholder="http://192.168.1.100:8096" required autocomplete="url" />
-              </div>
-              <label class="jellyfin-toggle-label">
-                <input type="checkbox" id="jellyfin-auth-toggle" />
-                Use API key instead of username/password
-              </label>
-              <div id="jellyfin-userpass">
-                <div class="jellyfin-field">
-                  <label for="jellyfin-username">Username</label>
-                  <input type="text" id="jellyfin-username" autocomplete="username" />
-                </div>
-                <div class="jellyfin-field">
-                  <label for="jellyfin-password">Password</label>
-                  <input type="password" id="jellyfin-password" autocomplete="current-password" />
-                </div>
-              </div>
-              <div id="jellyfin-apikey-wrap" hidden>
-                <div class="jellyfin-field">
-                  <label for="jellyfin-api-key">API Key</label>
-                  <input type="text" id="jellyfin-api-key" autocomplete="off" />
-                </div>
-              </div>
-              <p id="jellyfin-login-error" class="jellyfin-error"></p>
-              <button type="submit" id="jellyfin-submit">Connect</button>
-            </form>
-          </div>
-
-          <!-- Browser view -->
-          <div id="jellyfin-browser" hidden>
-            <div class="jellyfin-browser-toolbar">
-              <input type="search" id="jellyfin-search" placeholder="Search…" />
-              <button id="jellyfin-disconnect">Disconnect</button>
-            </div>
-            <ul id="jellyfin-track-list"></ul>
-            <button id="jellyfin-load-more" class="jellyfin-load-more" hidden>Load more</button>
-          </div>
-        </div>
-      </div>
-      <div class="user_interaction">
-        <p class="user_interaction__label">Click to start</p>
-        <p class="demo-hint">No EEG headset? The visualizer works great with audio only.</p>
-      </div>
       <!-- Shown only in browsers that lack Web Bluetooth (Firefox, Safari) -->
       <div class="browser-warning" id="bt-warning" hidden>
         EEG requires Chrome or Edge (Web Bluetooth API).

@@ -1,6 +1,3 @@
-import * as THREE from 'three'
-import ReativeParticles from './entities/ReactiveParticles'
-import * as dat from 'dat.gui'
 import BPMManager from './managers/BPMManager'
 import AudioManager from './managers/AudioManager'
 import EEGManager from './managers/EEGManager'
@@ -8,23 +5,16 @@ import EntrainmentManager from './managers/EntrainmentManager'
 import ComplexityManager from './managers/ComplexityManager'
 import RecordingManager from './managers/RecordingManager'
 import BioDataDisplay from './ui/BioDataDisplay'
-import JellyfinManager from './managers/JellyfinManager'
-import JellyfinBrowser from './ui/JellyfinBrowser'
-
-const DEMO_TRACK_URL = './audio/demo.mp3'
 
 /**
  * App — top-level orchestrator.
  *
- * Manages the Three.js scene, camera, renderer, and all manager instances.
- * On user interaction (click or file upload), loads audio, detects BPM,
- * then starts the particle visualizer and render loop.
+ * A Muse EEG/PPG/IMU biometric visualizer. The live bio-data panel is the
+ * visualization; there is no 3D scene. Audio playback is optional — loading a
+ * local file enables the neural-entrainment analysis (music tempo vs. EEG
+ * tempogram). The render loop runs immediately so EEG plots work with no audio.
  */
 export default class App {
-  //THREE objects
-  static holder = null
-  static gui = null
-
   //Managers
   static audioManager = null
   static bpmManager = null
@@ -34,131 +24,89 @@ export default class App {
   static recordingManager = null
 
   constructor() {
-    const overlay = document.querySelector('.user_interaction')
     const input = document.getElementById('audio-upload')
 
-    // File upload: first load initializes everything; subsequent uploads swap the track
+    // File upload: loads (or replaces) the buffer audio source.
     input.addEventListener('change', (e) => {
       const file = e.target.files[0]
       if (!file) return
       e.target.value = '' // allow re-selecting the same file
-      if (this.renderer) {
-        this._swapAudio(file)
-      } else {
-        overlay.removeEventListener('click', this._overlayClickHandler)
-        this.init(file)
-      }
+      this._loadAudioFile(file)
     })
 
-    // Click anywhere on overlay: load demo track
-    this._overlayClickHandler = (e) => {
-      overlay.removeEventListener('click', this._overlayClickHandler)
-      this.init(DEMO_TRACK_URL)
-    }
-    overlay.addEventListener('click', this._overlayClickHandler)
+    // Mic button: toggle live microphone input as the (muted) audio source.
+    this._micBtn = document.getElementById('mic-btn')
+    this._micBtn.addEventListener('click', () => this._toggleMic())
 
     this._setupEEG()
-    this._setupJellyfin()
     this._setupRecording()
-    this._setupFullscreen()
 
-    // Start the render/update loop immediately so EEG plots work before music starts
+    // Start the update loop immediately so EEG/bio plots work before (or without) audio.
     this.update()
   }
 
-  /**
-   * Initialize scene, renderer, camera and kick off audio loading.
-   * @param {File|string} source — File object or URL string for the audio
-   */
-  init(source) {
-    document.querySelector('.user_interaction__label').textContent = 'Loading...'
-
-    this.renderer = new THREE.WebGLRenderer({
-      antialias: true,
-      alpha: true,
-    })
-
-    this.renderer.setClearColor(0x000000, 0)
-    this.renderer.setSize(window.innerWidth, window.innerHeight)
-    this.renderer.autoClear = false
-    document.querySelector('.content').appendChild(this.renderer.domElement)
-
-    this.camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 10000)
-    this.camera.position.z = 12
-    this.camera.frustumCulled = false
-
-    this.scene = new THREE.Scene()
-    this.scene.add(this.camera)
-
-    App.holder = new THREE.Object3D()
-    App.holder.name = 'holder'
-    this.scene.add(App.holder)
-    App.holder.sortObjects = false
-
-    App.gui = new dat.GUI()
-
-    this.createManagers(source)
-
-    this.resize()
-    window.addEventListener('resize', () => this.resize())
+  /** Lazily create the audio + entrainment managers (idempotent). */
+  _ensureAudioInfra() {
+    if (!App.audioManager) App.audioManager = new AudioManager()
+    if (!App.entrainmentManager) App.entrainmentManager = new EntrainmentManager()
   }
 
   /**
-   * Load audio, detect BPM, then create particles and start the render loop.
-   * @param {File|string} source — passed through to AudioManager.loadAudioBuffer()
+   * Load a local audio file as the (looping) buffer source, detect its BPM, and
+   * play it. Replaces any current source, including live-mic input.
+   * @param {File} file — audio File from the upload input
    */
-  async createManagers(source) {
+  async _loadAudioFile(file) {
+    this._ensureAudioInfra()
     try {
-      App.audioManager = new AudioManager()
-      await App.audioManager.loadAudioBuffer(source)
+      await App.audioManager.loadAudioBuffer(file)
     } catch (err) {
-      // Demo track missing or fetch failed — user can upload via the Track button
       console.error('Audio load failed:', err)
-      document.querySelector('.user_interaction__label').textContent =
-        'Could not load demo track. Upload a file using the Track button.'
       return
     }
 
-    App.bpmManager = new BPMManager()
-    App.bpmManager.addEventListener('beat', () => {
-      this.particles.onBPMBeat()
-    })
+    if (!App.bpmManager) App.bpmManager = new BPMManager()
     await App.bpmManager.detectBPM(App.audioManager.audio.buffer)
-
-    App.entrainmentManager = new EntrainmentManager()
-
-    document.querySelector('.user_interaction').remove()
 
     App.audioManager.play()
     this._setupPauseBtn()
-
-    this.particles = new ReativeParticles()
-    this.particles.init()
-
-    // If EEG was connected before music started, apply EEG-active defaults
-    if (App.eegManager?.isConnected) {
-      this.particles.properties.autoMix = false
-      this.particles.properties.autoRotate = false
-      this.particles.properties.headControl = true
-    }
+    this._updateMicButton()
   }
 
-  /** Wire up Jellyfin browser button and create manager + browser instances. */
-  _setupJellyfin() {
-    const jellyfinManager = new JellyfinManager()
-    const jellyfinBrowser = new JellyfinBrowser(jellyfinManager, (url) => {
-      if (this.renderer) {
-        this._swapAudio(url)
-      } else {
-        const overlay = document.querySelector('.user_interaction')
-        overlay?.removeEventListener('click', this._overlayClickHandler)
-        this.init(url)
-      }
-    })
+  /** Toggle live microphone input as the (muted, analysis-only) audio source. */
+  async _toggleMic() {
+    this._ensureAudioInfra()
+    const am = App.audioManager
 
-    document.getElementById('jellyfin-btn').addEventListener('click', () => {
-      jellyfinBrowser.show()
-    })
+    if (am.isMic) {
+      am.stopMic()
+    } else {
+      this._micBtn.disabled = true
+      try {
+        await am.startMic()
+      } catch (err) {
+        // Permission denied or no device — leave the current source untouched.
+        console.error('Microphone access failed:', err)
+        this._micBtn.disabled = false
+        return
+      }
+      this._micBtn.disabled = false
+      // Live input can't be paused — hide the buffer pause button while mic is on.
+      if (this._pauseBtn) this._pauseBtn.hidden = true
+    }
+    this._updateMicButton()
+  }
+
+  /** Reflect the current mic state in the mic button + pause button visibility. */
+  _updateMicButton() {
+    if (!this._micBtn) return
+    const active = !!App.audioManager?.isMic
+    this._micBtn.classList.toggle('active', active)
+    this._micBtn.title = active ? 'Stop microphone input' : 'Use microphone as audio source'
+    // Restore the pause button when a buffer source is (again) active.
+    if (!active && this._pauseBtn && App.audioManager?.source === 'buffer') {
+      this._pauseBtn.hidden = false
+    }
   }
 
   /** Wire up EEG connect/disconnect UI and create the EEGManager instance. */
@@ -170,13 +118,11 @@ export default class App {
     const btn         = document.getElementById('eeg-connect')
     const batteryEl   = document.getElementById('eeg-status')
     const batteryFill = batteryEl.querySelector('.battery-fill')
-    const toggleBtn   = document.getElementById('bio-toggle')
     const panel       = document.getElementById('bio-panel')
     this._hrDisplay   = document.getElementById('heart-rate')
     this._bioHr       = document.getElementById('bio-hr')
     this._qualityDots = document.querySelectorAll('.quality-dot')
     this._bioPanel    = panel
-    this._bioToggle   = toggleBtn
     this._bioVisible  = false
 
     const updateBattery = (level) => {
@@ -198,27 +144,17 @@ export default class App {
 
     controls.style.display = 'flex'
 
-    toggleBtn.addEventListener('click', () => {
-      this._bioVisible = !this._bioVisible
-      panel.hidden = !this._bioVisible
-      toggleBtn.classList.toggle('active', this._bioVisible)
-    })
-
     App.eegManager.onBatteryLevel = (level) => updateBattery(level)
 
     App.eegManager.onDisconnected = () => {
       btn.textContent = 'Connect EEG'
       btn.disabled = false
       updateBattery(null)
-      toggleBtn.hidden = true
+      // Hide the data view and exit full-screen mode.
       panel.hidden = true
       this._bioVisible = false
-      toggleBtn.classList.remove('active')
-      if (this._recordBtn)     this._recordBtn.hidden = true
-      if (this._fullscreenBtn) this._fullscreenBtn.hidden = true
-      // Exit fullscreen mode if active, since the panel is now hidden
       document.body.classList.remove('fullscreen-bio')
-      this._fullscreenBtn?.classList.remove('active')
+      if (this._recordBtn) this._recordBtn.hidden = true
     }
 
     btn.addEventListener('click', async () => {
@@ -231,15 +167,7 @@ export default class App {
           await App.eegManager.connect()
           btn.textContent = 'Disconnect EEG'
           btn.disabled = false
-          toggleBtn.hidden = false
-          if (this._recordBtn)     this._recordBtn.hidden = false
-          if (this._fullscreenBtn) this._fullscreenBtn.hidden = false
-          // Switch to EEG-driven defaults: head control on, auto-mix/rotate off
-          if (this.particles) {
-            this.particles.properties.autoMix = false
-            this.particles.properties.autoRotate = false
-            this.particles.properties.headControl = true
-          }
+          if (this._recordBtn) this._recordBtn.hidden = false
           // Init plots on first connect; reset read pointers on subsequent connects
           if (!this._bioDisplay) {
             this._bioDisplay = new BioDataDisplay()
@@ -247,6 +175,10 @@ export default class App {
           } else {
             this._bioDisplay.resetIndices()
           }
+          // The full-screen data view is the default: show it automatically.
+          panel.hidden = false
+          this._bioVisible = true
+          document.body.classList.add('fullscreen-bio')
         } catch (err) {
           console.error('EEG connect failed:', err)
           btn.textContent = 'Connect EEG'
@@ -306,32 +238,6 @@ export default class App {
     URL.revokeObjectURL(url)
   }
 
-  /** Wire up the full-screen bio-panel button + Escape-to-exit. */
-  _setupFullscreen() {
-    const btn = document.getElementById('bio-fullscreen')
-    this._fullscreenBtn = btn
-
-    const toggle = () => {
-      const active = document.body.classList.toggle('fullscreen-bio')
-      btn.classList.toggle('active', active)
-      // Make sure the panel is visible when entering fullscreen
-      if (active) {
-        const panel = document.getElementById('bio-panel')
-        panel.hidden = false
-        this._bioVisible = true
-        this._bioToggle?.classList.add('active')
-      }
-    }
-
-    btn.addEventListener('click', toggle)
-
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && document.body.classList.contains('fullscreen-bio')) {
-        toggle()
-      }
-    })
-  }
-
   /** Show the pause button and wire its click handler (idempotent). */
   _setupPauseBtn() {
     if (this._pauseBtn) {
@@ -349,22 +255,6 @@ export default class App {
       }
     })
     this._pauseBtn.hidden = false
-  }
-
-  /** Swap in a new audio track while the visualizer is running. */
-  async _swapAudio(file) {
-    if (App.audioManager.isPlaying) {
-      App.audioManager.audio.stop()
-      App.audioManager.isPlaying = false
-    }
-    try {
-      await App.audioManager.loadAudioBuffer(file)
-      await App.bpmManager.detectBPM(App.audioManager.audio.buffer)
-      App.audioManager.play()
-      if (this._pauseBtn) this._pauseBtn.textContent = '⏸'
-    } catch (err) {
-      console.error('Audio swap failed:', err)
-    }
   }
 
   /** Update signal quality dots, bio-panel HR readout, and plots each frame. */
@@ -386,17 +276,7 @@ export default class App {
     if (this._bioVisible) this._bioDisplay?.update()
   }
 
-  /** Handle window resize — update camera aspect and renderer size. */
-  resize() {
-    this.width = window.innerWidth
-    this.height = window.innerHeight
-
-    this.camera.aspect = this.width / this.height
-    this.camera.updateProjectionMatrix()
-    this.renderer.setSize(this.width, this.height)
-  }
-
-  /** Main render loop — called every animation frame. */
+  /** Main update loop — called every animation frame. */
   update() {
     requestAnimationFrame(() => this.update())
 
@@ -409,11 +289,6 @@ export default class App {
 
     this._updateBioPanel()
 
-    this.particles?.update(
-      App.eegManager?.bandPower,
-      App.eegManager?.heartPulse ?? 0,
-      App.eegManager?.headPose ?? null,
-    )
     App.audioManager?.update()
     App.entrainmentManager?.update(performance.now())
     App.complexityManager?.update(performance.now())
@@ -425,7 +300,5 @@ export default class App {
       const ss = (s % 60).toString().padStart(2, '0')
       this._recordTimeEl.textContent = `${mm}:${ss}`
     }
-
-    if (this.renderer) this.renderer.render(this.scene, this.camera)
   }
 }

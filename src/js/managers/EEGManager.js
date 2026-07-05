@@ -188,8 +188,9 @@ export default class EEGManager {
   // ── Active-band filter ────────────────────────────────────────────────────
   // Only bands in this Set participate in the aperiodic-normalised relative-power
   // calculation. Bands absent from the Set are zeroed in bandPower output, so they
-  // cannot dominate the normalisation even when unmapped in the visualiser.
-  // Updated by ReactiveParticles whenever the MAPPING GUI sources change.
+  // cannot dominate the normalisation. Delta is excluded by default because its
+  // large, movement-prone power would otherwise swamp the higher bands; adjust
+  // this Set to change which bands are shown in the EEG Bands panel.
   normalizeBands = new Set(['theta', 'alpha', 'beta', 'gamma'])
 
   // ── Configurable channel-quality aggregation ──────────────────────────────
