@@ -1,0 +1,4 @@
+# For plot_metrics.py when not using `uv run` (which installs these inline).
+#   pip install -r harness/requirements.txt
+numpy
+matplotlib
