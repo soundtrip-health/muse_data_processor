@@ -11,9 +11,12 @@ header) and draws a 4-panel figure. `nan` values render as gaps.
 Usage:
     uv run harness/plot_metrics.py metrics.txt [-o out.png] [--show]
     ./cpp/museproc data/session1.jsonl | uv run harness/plot_metrics.py -
+
+Without -o, the figure is saved into the data/ folder as data/<name>.png.
 """
 import argparse
 import sys
+from pathlib import Path
 
 import numpy as np
 import matplotlib
@@ -72,7 +75,14 @@ def main():
     if args.show:
         plt.show()
     else:
-        out = args.out or (args.input.rsplit(".", 1)[0] + ".png" if args.input != "-" else "metrics.png")
+        if args.out:
+            out = args.out
+        else:
+            # Default: save into the data/ folder (gitignored scratch area).
+            stem = Path(args.input).stem if args.input != "-" else "metrics"
+            data_dir = Path("data")
+            data_dir.mkdir(exist_ok=True)
+            out = str(data_dir / f"{stem}.png")
         fig.savefig(out, dpi=120)
         print(f"wrote {out}")
 

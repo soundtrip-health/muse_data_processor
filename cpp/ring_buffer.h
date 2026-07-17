@@ -20,7 +20,6 @@ public:
     }
 
     std::size_t size() const { return count_; }
-    std::size_t capacity() const { return cap_; }
 
     // Copy the last `n` samples (chronological order) into out[0..n).
     // If fewer than `n` samples exist, the leading slots are filled with `pad`.

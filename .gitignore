@@ -18,8 +18,7 @@ graphify-out/
 cpp/*.o
 cpp/museproc
 
-# Recording data — large, participant biometric data
-data/
+# Recording data + generated metrics/plots (large / participant biometric data).
+# Keep the folder itself on clone (via .gitkeep) but ignore everything in it.
+data/*
 
-# Generated metric plots
-*.png

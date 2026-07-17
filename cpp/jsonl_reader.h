@@ -47,7 +47,6 @@ public:
 
     long grid_len() const { return grid_len_; }         // total samples on the grid
     double t_offset() const { return t_offset_; }        // seconds anchor of sample 0
-    double fs() const { return fs_; }
 
     // Copy the last `n` grid samples of channel `ch` (chronological, NaN pad).
     void copy_window(int ch, std::size_t n, double* out) const {

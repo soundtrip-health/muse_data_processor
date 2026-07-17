@@ -16,9 +16,9 @@ Python analysis suite are gone from the tree but remain in git history.
 ## Build & run
 
 ```bash
-cd cpp && make                       # -> cpp/museproc (g++ -O2 -std=c++17)
-./cpp/museproc data/session1.jsonl   # stream metrics to stdout
-uv run harness/plot_metrics.py metrics.txt   # 4-panel plot
+cd cpp && make                                     # -> cpp/museproc (g++ -O2 -std=c++17)
+./cpp/museproc data/session1.jsonl > data/session1.metrics.txt
+uv run harness/plot_metrics.py data/session1.metrics.txt   # -> data/session1.metrics.png
 ```
 
 No CMake, no third-party C++ libraries. Python harness runs via `uv` (inline
@@ -31,16 +31,16 @@ deps) or `pip install -r harness/requirements.txt`.
 | `cpp/jsonl_reader.*` | JSONL parse, 16-bit counter unwrap, packet→256 Hz grid, causal notch, rolling buffers |
 | `cpp/metrics.*` | Morlet band power, signal quality, quality weights, sample entropy / MSE, symmetry |
 | `cpp/main.cpp` | CLI, emit loop, output formatting |
-| `harness/plot_metrics.py` | plot the metrics stream |
-| `harness/golden.py` | numpy-only reference; validates the C++ port (matches `--no-notch` to ~6 sig figs) |
-| `reference/utils.py`, `reference/eeg.py` | original offline algorithm source-of-truth (NOT runnable standalone) |
-| `data/` | recorded sessions (gitignored, biometric) |
+| `harness/plot_metrics.py` | plot the metrics stream (saves into `data/` by default) |
+| `harness/golden.py` | numpy-only reference implementation; validates the C++ port (matches `--no-notch` to ~6 sig figs) and is the algorithm source-of-truth |
+| `data/` | recorded sessions + generated metrics/plots (gitignored except `.gitkeep`) |
 
 ## Working rules
 
-- **`reference/utils.py` + `reference/eeg.py` are the algorithm source-of-truth.**
-  When changing signal processing, keep the C++ faithful to them (or update both
-  intentionally) and re-check parity with `harness/golden.py`.
+- **`harness/golden.py` is the algorithm source-of-truth.** When changing signal
+  processing, keep the C++ and `golden.py` in agreement and re-check parity. The
+  original offline Nouscope analysis (`analysis/utils.py` / `eeg.py`) lives in
+  git history if you need the fuller reference.
 - Muse electrode order is fixed: `0=TP9, 1=AF7, 2=AF8, 3=TP10`. All four scalp
   channels are processed; there is no separate reference channel.
 - The processor is **streaming and causal** — no look-ahead, no zero-phase

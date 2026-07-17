@@ -34,10 +34,13 @@ cd cpp && make          # produces cpp/museproc
 ## Run
 
 ```bash
-./cpp/museproc data/session1.jsonl > metrics.txt         # batch
-./cpp/museproc data/session1.jsonl --realtime            # pace to wall-clock
-cat data/session1.jsonl | ./cpp/museproc -               # stream from stdin
+./cpp/museproc data/session1.jsonl > data/session1.metrics.txt   # batch
+./cpp/museproc data/session1.jsonl --realtime                    # pace to wall-clock
+cat data/session1.jsonl | ./cpp/museproc -                       # stream from stdin
 ```
+
+Save metrics files into `data/` — that folder is the gitignored scratch area for
+both recorded sessions and generated output.
 
 Options:
 
@@ -57,11 +60,12 @@ self-contained [`uv`](https://docs.astral.sh/uv/) script (installs numpy +
 matplotlib on first run):
 
 ```bash
-uv run harness/plot_metrics.py metrics.txt -o metrics.png
+uv run harness/plot_metrics.py data/session1.metrics.txt   # -> data/session1.metrics.png
 ./cpp/museproc data/session1.jsonl | uv run harness/plot_metrics.py -
 ```
 
-(Or `pip install -r harness/requirements.txt` and run with plain `python3`.)
+Without `-o`, the figure is written into `data/` as `data/<name>.png`. (Or
+`pip install -r harness/requirements.txt` and run with plain `python3`.)
 
 ## How it works
 
@@ -81,7 +85,7 @@ uv run harness/plot_metrics.py metrics.txt -o metrics.png
    weights (drop up to the 2 worst poor channels; good=1, marginal=0.5), Morlet
    band powers, and the four output metrics.
 
-The algorithms are a streaming port of the offline reference in `reference/`
-(originally `analysis/utils.py` / `analysis/eeg.py` from the Nouscope project).
-`harness/golden.py` is a numpy-only re-implementation used to validate the port;
-its metrics match `museproc --no-notch` to 5–6 significant figures.
+The algorithms are a streaming port of the original Nouscope offline analysis
+(`analysis/utils.py` / `eeg.py`, preserved in git history). `harness/golden.py`
+is a self-contained numpy re-implementation used to validate the port — its
+metrics match `museproc --no-notch` to 5–6 significant figures.
