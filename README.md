@@ -85,15 +85,3 @@ The algorithms are a streaming port of the offline reference in `reference/`
 (originally `analysis/utils.py` / `analysis/eeg.py` from the Nouscope project).
 `harness/golden.py` is a numpy-only re-implementation used to validate the port;
 its metrics match `museproc --no-notch` to 5–6 significant figures.
-
-## Data
-
-Recorded sessions live in `data/` (gitignored — biometric data). `session1–3`
-are real Muse-340C captures; `cutofftest` and `simulatedtestsession` exercise
-backlog-trim and synthetic edge cases.
-
-## Provenance
-
-This repository began as **Nouscope**, a browser (Vite/WebGL) Muse visualizer.
-It was stripped down to this C++ processor; the original JS app and full Python
-analysis suite remain in git history.
