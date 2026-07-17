@@ -23,6 +23,32 @@ Muse electrode order is fixed: `0=TP9, 1=AF7, 2=AF8, 3=TP10`. Values are `nan`
 until enough data has accumulated (theta/alpha & symmetry after ~1 s, entropy
 after ~8 s) or when a channel window contains an unfillable dropout.
 
+## Input
+
+The tool reads a **Muse JSONL recording**: one JSON object per line. Only `eeg`
+records are used (all other record types — `ppg`, `accel`, `gyro`, etc. — are
+ignored), so a minimal valid file looks like:
+
+```jsonl
+{"type":"meta","electrodeNames":["TP9","AF7","AF8","TP10"],"sampleRates":{"eeg":256}}
+{"type":"eeg","index":0,"electrode":0,"samples":[ ... 12 floats, µV ... ]}
+{"type":"eeg","index":0,"electrode":1,"samples":[ ... 12 ... ]}
+{"type":"eeg","index":0,"electrode":2,"samples":[ ... 12 ... ]}
+{"type":"eeg","index":0,"electrode":3,"samples":[ ... 12 ... ]}
+{"type":"eeg","index":1,"electrode":0,"samples":[ ... ]}
+```
+
+Each `eeg` record carries 12 samples for one of the four electrodes; the four
+electrodes of a packet share the same 16-bit `index` (which wraps at 65536).
+EEG is 256 Hz, 12 samples per packet. An optional `meta` first line may declare
+`sampleRates.eeg`; otherwise 256 Hz is assumed (override with `--fs`). This is
+the format produced by the Muse recorders in the `soundtrip` toolchain.
+
+**No recordings ship with the repo** — `data/` is empty on a fresh clone (kept
+by a `.gitkeep`, everything else in it is gitignored). Drop your own `.jsonl`
+into `data/` and point the tool at it. The examples below use `data/session.jsonl`
+as a stand-in for your file.
+
 ## Build
 
 Requires a C++17 compiler (`g++`). No CMake, no external libraries.
@@ -34,13 +60,14 @@ cd cpp && make          # produces cpp/museproc
 ## Run
 
 ```bash
-./cpp/museproc data/session1.jsonl > data/session1.metrics.txt   # batch
-./cpp/museproc data/session1.jsonl --realtime                    # pace to wall-clock
-cat data/session1.jsonl | ./cpp/museproc -                       # stream from stdin
+./cpp/museproc data/session.jsonl > data/session.metrics.txt   # batch
+./cpp/museproc data/session.jsonl --realtime                   # pace to wall-clock
+cat data/session.jsonl | ./cpp/museproc -                      # stream from stdin
 ```
 
-Save metrics files into `data/` — that folder is the gitignored scratch area for
-both recorded sessions and generated output.
+Replace `data/session.jsonl` with your own recording. Save metrics files into
+`data/` — that folder is the gitignored scratch area for both recordings and
+generated output.
 
 Options:
 
@@ -60,8 +87,8 @@ self-contained [`uv`](https://docs.astral.sh/uv/) script (installs numpy +
 matplotlib on first run):
 
 ```bash
-uv run harness/plot_metrics.py data/session1.metrics.txt   # -> data/session1.metrics.png
-./cpp/museproc data/session1.jsonl | uv run harness/plot_metrics.py -
+uv run harness/plot_metrics.py data/session.metrics.txt   # -> data/session.metrics.png
+./cpp/museproc data/session.jsonl | uv run harness/plot_metrics.py -
 ```
 
 Without `-o`, the figure is written into `data/` as `data/<name>.png`. (Or
