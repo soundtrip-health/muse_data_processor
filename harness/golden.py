@@ -1,35 +1,93 @@
 """Numpy-only golden reference for museproc. Reconstructs the EEG grid and
 computes the four metrics at chosen window-ends, to compare against the C++
-tool run with --no-notch (so we isolate the algorithm from the causal notch)."""
-import json, sys, math
+tool run with --no-notch (so we isolate the algorithm from the causal notch).
+
+--ppg/--imu mirror museproc's flags: a held-latest-value readout of the raw
+PPG infrared channel and/or accel/gyro, synced to whatever grid position is
+queried (see load_session / hold_at)."""
+import json, sys, math, bisect
 import numpy as np
 
 FS = 256
 CH = 4
 
-def load_grid(path):
+def load_session(path):
+    """Single linear pass over the JSONL file, in line order — the same order
+    museproc's main loop reads it in. Builds the eeg grid via sequential
+    commit-on-packet-completion (an unwrapped index's 4 electrodes are
+    buffered until all arrive, gaps NaN-filled, overlaps dropped — mirrors
+    EegStream::write_packet in cpp/jsonl_reader.cpp) and records ppg/accel/
+    gyro samples as (grid_len_at_arrival, value...) events: the running eeg
+    grid length at the moment each line was read. That running length is
+    exactly what a --ppg/--imu query later holds at any queried grid
+    position, mirroring PpgTracker/ImuTracker's latest-value-wins behavior."""
     prev = [None]*CH; wraps=[0]*CH
-    by_idx = {}
+    have_first = False; first_idx = 0; grid_len = 0
+    partial = {}       # unwrapped idx -> {electrode: samples}
+    chunks = []         # (start, ndarray[n,CH]) eeg blocks in grid order
+    ppg_events = []      # (grid_len, sample)
+    accel_events = []    # (grid_len, x, y, z)
+    gyro_events = []     # (grid_len, x, y, z)
+
     with open(path) as f:
         for line in f:
-            if '"type":"eeg"' not in line: continue
-            r = json.loads(line)
-            e = r["electrode"]; raw = r["index"]
-            if prev[e] is not None and prev[e]-raw > 32768: wraps[e]+=1
-            prev[e]=raw
-            u = raw + wraps[e]*65536
-            by_idx.setdefault(u,{})[e]=np.asarray(r["samples"],dtype=np.float64)
-    idxs = sorted(by_idx)
-    i0 = idxs[0]
-    n_total = (idxs[-1]-i0)*12 + 12 + 12
-    grid = np.full((n_total,CH), np.nan)
-    for u in idxs:
-        chans = by_idx[u]
-        if len(chans) < 4: continue
-        s = (u-i0)*12
-        for e in range(CH):
-            grid[s:s+12,e] = chans[e]
-    return grid
+            if '"type":"eeg"' in line:
+                r = json.loads(line)
+                e = r["electrode"]; raw = r["index"]
+                if prev[e] is not None and prev[e]-raw > 32768: wraps[e]+=1
+                prev[e]=raw
+                u = raw + wraps[e]*65536
+                part = partial.setdefault(u,{})
+                part[e] = np.asarray(r["samples"],dtype=np.float64)
+                if len(part) == CH:
+                    if not have_first:
+                        have_first = True; first_idx = u; grid_len = 0
+                    s = (u-first_idx)*12
+                    if s >= grid_len:          # else: overlap, an earlier packet already won
+                        if s > grid_len:
+                            chunks.append((grid_len, np.full((s-grid_len,CH), np.nan)))
+                            grid_len = s
+                        block = np.stack([part[c] for c in range(CH)], axis=1)
+                        chunks.append((grid_len, block))
+                        grid_len += block.shape[0]
+                    del partial[u]
+                    for k in [k for k in partial if k < u-2]: del partial[k]
+            elif '"type":"ppg"' in line:
+                r = json.loads(line)
+                s = r.get("samples")
+                if r.get("ppgChannel") == 1 and s:
+                    ppg_events.append((grid_len, float(s[-1])))
+            elif '"type":"accel"' in line:
+                r = json.loads(line); s = r.get("samples")
+                if s:
+                    last = s[-1]; accel_events.append((grid_len, last["x"], last["y"], last["z"]))
+            elif '"type":"gyro"' in line:
+                r = json.loads(line); s = r.get("samples")
+                if s:
+                    last = s[-1]; gyro_events.append((grid_len, last["x"], last["y"], last["z"]))
+
+    grid = np.full((grid_len,CH), np.nan)
+    for start, block in chunks:
+        grid[start:start+block.shape[0]] = block
+    return grid, ppg_events, accel_events, gyro_events
+
+def load_grid(path):
+    return load_session(path)[0]
+
+def hold_at(events, L, ncols=1):
+    """Value of the last event with grid_len < L — nan (or an nan tuple)
+    if none has arrived yet. Strictly less-than, not <=: grid_len only
+    advances on eeg lines, so an event stamped grid_len==L was necessarily
+    read on a *later* line than the eeg packet that pushed the grid to L —
+    at the real emit moment (which fires immediately after that eeg line)
+    it has not been fed to the tracker yet. Same latest-value-wins
+    semantics as PpgTracker/ImuTracker in cpp/jsonl_reader.cpp."""
+    nan = (math.nan,)*ncols if ncols > 1 else math.nan
+    if not events: return nan
+    idx = bisect.bisect_left([e[0] for e in events], L) - 1
+    if idx < 0: return nan
+    vals = events[idx][1:]
+    return vals if ncols > 1 else vals[0]
 
 def make_morlet(f, tau, fs=FS):
     sigma = tau/(2*math.pi*f)
@@ -137,10 +195,23 @@ def metrics_at(grid, L):
     return ent,ta,sym,q
 
 if __name__=='__main__':
-    path=sys.argv[1]
-    grid=load_grid(path)
+    args = sys.argv[1:]
+    want_ppg = '--ppg' in args
+    want_imu = '--imu' in args
+    args = [a for a in args if a not in ('--ppg','--imu')]
+    path = args[0]
+    grid, ppg_events, accel_events, gyro_events = load_session(path)
     print(f"# grid samples={len(grid)}  dur={len(grid)/FS:.1f}s")
-    for t in [float(x) for x in sys.argv[2:]]:
+    fmt1 = lambda v: 'nan' if math.isnan(v) else f"{v:.5f}"
+    for t in [float(x) for x in args[1:]]:
         L=round(t*FS)
         ent,ta,sym,q=metrics_at(grid,L)
-        print(f"t={L/FS:.5f} entropy={ent:.5f} theta_alpha={ta:.5f} alpha_symmetry={sym:.5f} quality={q:.5f}")
+        line = f"t={L/FS:.5f} entropy={ent:.5f} theta_alpha={ta:.5f} alpha_symmetry={sym:.5f} quality={q:.5f}"
+        if want_ppg:
+            line += f" ppg={fmt1(hold_at(ppg_events, L))}"
+        if want_imu:
+            ax,ay,az = hold_at(accel_events, L, 3)
+            gx,gy,gz = hold_at(gyro_events, L, 3)
+            line += (f" accel_x={fmt1(ax)} accel_y={fmt1(ay)} accel_z={fmt1(az)}"
+                     f" gyro_x={fmt1(gx)} gyro_y={fmt1(gy)} gyro_z={fmt1(gz)}")
+        print(line)
