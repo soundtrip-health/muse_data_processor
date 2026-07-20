@@ -5,6 +5,12 @@
 // where entropy is the multiscale-entropy scalar, theta_alpha the quality-
 // weighted band-power ratio, alpha_symmetry = ln(alpha_AF8) - ln(alpha_AF7),
 // and quality a blended 0-1 data-quality index. See README.md.
+//
+// --ppg and --imu optionally append a raw PPG infrared sample and/or raw
+// accel/gyro x/y/z samples to each row. Those sensors report faster than the
+// EEG-driven output cadence, so each row carries whatever sample was most
+// recently seen — not an average or resample, and not every sample they
+// produce is ever printed.
 
 #include <chrono>
 #include <cmath>
@@ -29,6 +35,8 @@ struct Options {
     bool notch = true;
     double line_hz = 60.0;
     double fs = EEG_FS_DEFAULT;
+    bool ppg = false;
+    bool imu = false;
 };
 
 void usage() {
@@ -39,7 +47,12 @@ void usage() {
         "  --realtime     pace output to wall-clock time (emulate live stream)\n"
         "  --no-notch     disable the causal 60 Hz notch filter\n"
         "  --line-hz F    mains frequency for the notch (default 60)\n"
-        "  --fs F         EEG sample rate (default 256)\n");
+        "  --fs F         EEG sample rate (default 256)\n"
+        "  --ppg          add a raw PPG (infrared) sample column, held to the\n"
+        "                 output cadence (PPG arrives faster than --hop; only\n"
+        "                 the latest sample at each output row is reported)\n"
+        "  --imu          add raw accel_x/y/z, gyro_x/y/z columns, held to the\n"
+        "                 output cadence the same way as --ppg\n");
 }
 
 bool parse_args(int argc, char** argv, Options& o) {
@@ -52,6 +65,8 @@ bool parse_args(int argc, char** argv, Options& o) {
         else if (a == "--no-notch") o.notch = false;
         else if (a == "--line-hz") next_d(o.line_hz);
         else if (a == "--fs") next_d(o.fs);
+        else if (a == "--ppg") o.ppg = true;
+        else if (a == "--imu") o.imu = true;
         else if (a == "-h" || a == "--help") { usage(); return false; }
         else if (!a.empty() && a[0] == '-' && a != "-") {
             std::fprintf(stderr, "unknown option: %s\n", a.c_str());
@@ -90,8 +105,17 @@ int main(int argc, char** argv) {
         in = &file;
     }
 
+    PpgTracker ppg_tracker;
+    ImuTracker imu_tracker;
+
     const char sep = o.csv ? ',' : ' ';
-    std::printf("# t%centropy%ctheta_alpha%calpha_symmetry%cquality\n", sep, sep, sep, sep);
+    std::printf("# t%centropy%ctheta_alpha%calpha_symmetry%cquality", sep, sep, sep, sep);
+    if (o.ppg) std::printf("%cppg", sep);
+    if (o.imu) {
+        std::printf("%caccel_x%caccel_y%caccel_z%cgyro_x%cgyro_y%cgyro_z",
+                    sep, sep, sep, sep, sep, sep);
+    }
+    std::printf("\n");
     std::fflush(stdout);
 
     std::vector<std::vector<double>> ch256(NCH, std::vector<double>(EEG_WIN));
@@ -171,15 +195,25 @@ int main(int argc, char** argv) {
             std::this_thread::sleep_until(target);
         }
 
-        std::printf("%s%c%s%c%s%c%s%c%s\n", fmt(t).c_str(), sep, fmt(entropy).c_str(), sep,
+        std::printf("%s%c%s%c%s%c%s%c%s", fmt(t).c_str(), sep, fmt(entropy).c_str(), sep,
                     fmt(theta_alpha).c_str(), sep, fmt(alpha_symmetry).c_str(), sep,
                     fmt(quality).c_str());
+        if (o.ppg) std::printf("%c%s", sep, fmt(ppg_tracker.latest()).c_str());
+        if (o.imu) {
+            std::printf("%c%s%c%s%c%s%c%s%c%s%c%s", sep, fmt(imu_tracker.accel_x()).c_str(),
+                        sep, fmt(imu_tracker.accel_y()).c_str(), sep, fmt(imu_tracker.accel_z()).c_str(),
+                        sep, fmt(imu_tracker.gyro_x()).c_str(), sep, fmt(imu_tracker.gyro_y()).c_str(),
+                        sep, fmt(imu_tracker.gyro_z()).c_str());
+        }
+        std::printf("\n");
         std::fflush(stdout);
     };
 
     long next_emit = EEG_WIN;
     std::string line;
     while (std::getline(*in, line)) {
+        if (o.ppg) ppg_tracker.feed(line);
+        if (o.imu) imu_tracker.feed(line);
         long added = stream.feed(line);
         if (added <= 0) continue;
         if (stream.grid_len() >= next_emit) {

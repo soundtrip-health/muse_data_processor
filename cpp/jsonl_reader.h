@@ -3,6 +3,7 @@
 
 #include <array>
 #include <cstdint>
+#include <limits>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -13,6 +14,10 @@
 //   0 = TP9, 1 = AF7, 2 = AF8, 3 = TP10
 static constexpr int NCH = 4;
 static constexpr int EEG_SAMPLES_PER_PACKET = 12;
+
+// ppgChannel carrying the cardiac (infrared) signal — Nouscope convention;
+// channels 0 and 2 are ambient/red and are not used here.
+static constexpr int PPG_INFRARED = 1;
 
 // A single parsed `"type":"eeg"` record.
 struct EegRecord {
@@ -28,6 +33,54 @@ struct EegRecord {
 // record. All other record types (ppg/accel/gyro/bands/hr/mse/entrain/meta)
 // return false. `timestamp` is intentionally ignored (float32-quantized).
 bool parse_eeg_line(const std::string& line, EegRecord& out);
+
+// A single parsed `"type":"ppg"` record (one packet, one device channel).
+struct PpgRecord {
+    int ppg_channel = -1;
+    double sample = 0.0;  // last raw sample in the packet
+};
+bool parse_ppg_line(const std::string& line, PpgRecord& out);
+
+// A single parsed `"type":"accel"` or `"type":"gyro"` record (one packet).
+struct ImuRecord {
+    bool is_accel = false;  // false => gyro
+    double x = 0.0, y = 0.0, z = 0.0;  // last {x,y,z} sample in the packet
+};
+bool parse_imu_line(const std::string& line, ImuRecord& out);
+
+// Holds the most recently seen raw PPG infrared sample. PPG arrives faster
+// than the metrics output cadence, so this is deliberately lossy: whatever
+// value is latest at the moment of an output row wins, and samples in
+// between rows are simply overwritten and never reported.
+class PpgTracker {
+public:
+    bool feed(const std::string& line);
+    double latest() const { return value_; }
+
+private:
+    double value_ = std::numeric_limits<double>::quiet_NaN();
+};
+
+// Holds the most recently seen raw accelerometer and gyroscope samples,
+// independently. Same latest-value-wins behavior as PpgTracker.
+class ImuTracker {
+public:
+    bool feed(const std::string& line);
+    double accel_x() const { return ax_; }
+    double accel_y() const { return ay_; }
+    double accel_z() const { return az_; }
+    double gyro_x() const { return gx_; }
+    double gyro_y() const { return gy_; }
+    double gyro_z() const { return gz_; }
+
+private:
+    double ax_ = std::numeric_limits<double>::quiet_NaN();
+    double ay_ = std::numeric_limits<double>::quiet_NaN();
+    double az_ = std::numeric_limits<double>::quiet_NaN();
+    double gx_ = std::numeric_limits<double>::quiet_NaN();
+    double gy_ = std::numeric_limits<double>::quiet_NaN();
+    double gz_ = std::numeric_limits<double>::quiet_NaN();
+};
 
 // Streaming ingest: turns a sequence of eeg records into per-channel sample
 // buffers laid out on a regular fs-Hz grid. Handles 16-bit counter unwrap,

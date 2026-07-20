@@ -55,6 +55,81 @@ bool parse_eeg_line(const std::string& line, EegRecord& out) {
     return n > 0;
 }
 
+bool parse_ppg_line(const std::string& line, PpgRecord& out) {
+    if (line.find("\"type\":\"ppg\"") == std::string::npos) return false;
+
+    std::size_t pos;
+    if (!find_key(line, "\"ppgChannel\":", pos)) return false;
+    out.ppg_channel = static_cast<int>(std::strtol(line.c_str() + pos, nullptr, 10));
+
+    if (!find_key(line, "\"samples\":[", pos)) return false;
+    const char* p = line.c_str() + pos;
+    int n = 0;
+    double last = 0.0;
+    while (true) {
+        char* end = nullptr;
+        double v = std::strtod(p, &end);
+        if (end == p) break;  // no more numbers
+        last = v;
+        ++n;
+        p = end;
+        while (*p == ' ' || *p == ',') ++p;
+        if (*p == ']' || *p == '\0') break;
+    }
+    if (n == 0) return false;
+    out.sample = last;
+    return true;
+}
+
+bool parse_imu_line(const std::string& line, ImuRecord& out) {
+    bool is_accel = line.find("\"type\":\"accel\"") != std::string::npos;
+    bool is_gyro = !is_accel && line.find("\"type\":\"gyro\"") != std::string::npos;
+    if (!is_accel && !is_gyro) return false;
+    out.is_accel = is_accel;
+
+    std::size_t arr_pos;
+    if (!find_key(line, "\"samples\":[", arr_pos)) return false;
+    std::size_t arr_end = line.find(']', arr_pos);
+    if (arr_end == std::string::npos) arr_end = line.size();
+
+    // Samples are `{x,y,z}` triples in packet order; only the last one (the
+    // most recent sample) is kept.
+    std::size_t x_key = line.rfind("\"x\":", arr_end);
+    if (x_key == std::string::npos || x_key < arr_pos) return false;
+    std::size_t y_key = line.find("\"y\":", x_key);
+    std::size_t z_key = line.find("\"z\":", x_key);
+    if (y_key == std::string::npos || y_key > arr_end) return false;
+    if (z_key == std::string::npos || z_key > arr_end) return false;
+
+    out.x = std::strtod(line.c_str() + x_key + 4, nullptr);
+    out.y = std::strtod(line.c_str() + y_key + 4, nullptr);
+    out.z = std::strtod(line.c_str() + z_key + 4, nullptr);
+    return true;
+}
+
+bool PpgTracker::feed(const std::string& line) {
+    PpgRecord rec;
+    if (!parse_ppg_line(line, rec)) return false;
+    if (rec.ppg_channel != PPG_INFRARED) return false;
+    value_ = rec.sample;
+    return true;
+}
+
+bool ImuTracker::feed(const std::string& line) {
+    ImuRecord rec;
+    if (!parse_imu_line(line, rec)) return false;
+    if (rec.is_accel) {
+        ax_ = rec.x;
+        ay_ = rec.y;
+        az_ = rec.z;
+    } else {
+        gx_ = rec.x;
+        gy_ = rec.y;
+        gz_ = rec.z;
+    }
+    return true;
+}
+
 EegStream::EegStream(std::size_t cap, double fs) : fs_(fs), cap_(cap) {
     rings_.reserve(NCH);
     for (int i = 0; i < NCH; ++i) rings_.emplace_back(cap);

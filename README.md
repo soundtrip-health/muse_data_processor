@@ -23,11 +23,25 @@ Muse electrode order is fixed: `0=TP9, 1=AF7, 2=AF8, 3=TP10`. Values are `nan`
 until enough data has accumulated (theta/alpha & symmetry after ~1 s, entropy
 after ~8 s) or when a channel window contains an unfillable dropout.
 
+### Optional PPG / IMU columns
+
+`--ppg` and `--imu` append raw sensor columns to each row. Both sensors report
+faster than the metrics output cadence (`--hop`), so these are a **hold**, not
+a resample or average: each row carries whatever sample was most recently seen
+at that point in the stream, and every other sample in between rows is
+discarded. Values are `nan` until the first matching record has been seen.
+
+| Flag | Adds | Source |
+|---|---|---|
+| `--ppg` | `ppg` | last sample of the most recent `ppgChannel:1` (infrared) packet |
+| `--imu` | `accel_x accel_y accel_z gyro_x gyro_y gyro_z` | last `{x,y,z}` sample of the most recent `accel`/`gyro` packet |
+
 ## Input
 
-The tool reads a **Muse JSONL recording**: one JSON object per line. Only `eeg`
-records are used (all other record types — `ppg`, `accel`, `gyro`, etc. — are
-ignored), so a minimal valid file looks like:
+The tool reads a **Muse JSONL recording**: one JSON object per line. `eeg`
+records are always used; `ppg` and `accel`/`gyro` records are additionally
+read when `--ppg`/`--imu` are passed. All other record types (`bands`, `hr`,
+`mse`, `entrain`, `meta`) are ignored. A minimal valid file looks like:
 
 ```jsonl
 {"type":"meta","electrodeNames":["TP9","AF7","AF8","TP10"],"sampleRates":{"eeg":256}}
@@ -79,6 +93,8 @@ Options:
 | `--no-notch` | on | disable the causal 60 Hz mains notch |
 | `--line-hz F` | 60 | mains frequency for the notch |
 | `--fs F` | 256 | EEG sample rate |
+| `--ppg` | off | append a raw PPG (infrared) sample column, held to the output cadence |
+| `--imu` | off | append raw accel/gyro x/y/z columns, held to the output cadence |
 
 ## Plot (test harness)
 
