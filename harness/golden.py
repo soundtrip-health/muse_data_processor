@@ -25,6 +25,9 @@ def load_session(path):
     have_first = False; first_idx = 0; grid_len = 0
     partial = {}       # unwrapped idx -> {electrode: samples}
     chunks = []         # (start, ndarray[n,CH]) eeg blocks in grid order
+    commit_points = []  # grid_len right after each eeg packet completion —
+                         # exactly the points museproc's main loop checks
+                         # `grid_len() >= next_emit` against (see emit_schedule)
     ppg_events = []      # (grid_len, sample)
     accel_events = []    # (grid_len, x, y, z)
     gyro_events = []     # (grid_len, x, y, z)
@@ -50,6 +53,7 @@ def load_session(path):
                         block = np.stack([part[c] for c in range(CH)], axis=1)
                         chunks.append((grid_len, block))
                         grid_len += block.shape[0]
+                        commit_points.append(grid_len)
                     del partial[u]
                     for k in [k for k in partial if k < u-2]: del partial[k]
             elif '"type":"ppg"' in line:
@@ -69,10 +73,25 @@ def load_session(path):
     grid = np.full((grid_len,CH), np.nan)
     for start, block in chunks:
         grid[start:start+block.shape[0]] = block
-    return grid, ppg_events, accel_events, gyro_events
+    return grid, ppg_events, accel_events, gyro_events, commit_points
 
 def load_grid(path):
     return load_session(path)[0]
+
+def emit_schedule(commit_points, hop=128, win=256):
+    """Reproduces museproc's exact output-row grid positions from the true
+    eeg-packet-completion sequence (see main.cpp's emit loop: `next_emit`
+    starts at EEG_WIN and jumps to the next multiple of hop past whatever
+    grid_len last triggered an emit). Works whether or not the session has
+    gaps, because it walks the real commit sequence rather than assuming a
+    fixed +12-per-packet cadence."""
+    Ls = []
+    next_emit = win
+    for g in commit_points:
+        if g >= next_emit:
+            Ls.append(g)
+            next_emit = ((g // hop) + 1) * hop
+    return Ls
 
 def hold_at(events, L, ncols=1):
     """Value of the last event with grid_len < L — nan (or an nan tuple)
@@ -158,7 +177,11 @@ def interp_short(x,maxgap):
             x[s:e]=np.interp(np.arange(s,e),[s-1,e],[x[s-1],x[e]])
     return x
 
-def metrics_at(grid, L):
+def metrics_at(grid, L, want_entropy=True):
+    """want_entropy=False skips the O(n^2) sample-entropy computation, which
+    dominates runtime (~5s/call on a 2048-sample window vs. a few ms for
+    everything else) — set it False for fast, exhaustive checks of the other
+    three metrics, and only pay for entropy on a sampled subset of rows."""
     w256 = grid[L-256:L]
     labels=[qlabel(rms(w256[:,c])) for c in range(4)]
     rmss=[rms(w256[:,c]) for c in range(4)]
@@ -175,7 +198,7 @@ def metrics_at(grid, L):
     sym = math.log(al[2]+1e-12)-math.log(al[1]+1e-12) if not (np.isnan(al[1]) or np.isnan(al[2])) else np.nan
     # mse
     ent=np.nan
-    if L>=2048 and tot>0:
+    if want_entropy and L>=2048 and tot>0:
         block=grid[L-2048:L]
         sig=(block*w).sum(axis=1)
         # NaN where any weighted channel is NaN
@@ -200,8 +223,12 @@ if __name__=='__main__':
     want_imu = '--imu' in args
     args = [a for a in args if a not in ('--ppg','--imu')]
     path = args[0]
-    grid, ppg_events, accel_events, gyro_events = load_session(path)
+    grid, ppg_events, accel_events, gyro_events, _ = load_session(path)
     print(f"# grid samples={len(grid)}  dur={len(grid)/FS:.1f}s")
+    if len(args) == 1:
+        print("# no timestamps given — pass one or more seconds to query, e.g.:")
+        print(f"#   python3 {sys.argv[0]} {path} --ppg --imu 5 30 90")
+        print("# or use harness/compare.py to check every row against museproc automatically")
     fmt1 = lambda v: 'nan' if math.isnan(v) else f"{v:.5f}"
     for t in [float(x) for x in args[1:]]:
         L=round(t*FS)

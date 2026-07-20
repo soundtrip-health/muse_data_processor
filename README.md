@@ -110,6 +110,29 @@ uv run harness/plot_metrics.py data/session.metrics.txt   # -> data/session.metr
 Without `-o`, the figure is written into `data/` as `data/<name>.png`. (Or
 `pip install -r harness/requirements.txt` and run with plain `python3`.)
 
+## Testing against the golden reference
+
+`harness/golden.py` is a numpy-only re-implementation of the same algorithm
+`museproc` runs, used to validate the C++ port (see "How it works" below).
+Run standalone, it only computes metrics for timestamps you pass explicitly:
+
+```bash
+python3 harness/golden.py data/session.jsonl --ppg --imu 5 30 90   # spot-check t=5s, 30s, 90s
+```
+
+For an actual pass/fail test, use `harness/compare.py`: it runs `museproc`
+and `golden.py` on the same file and diffs every row.
+
+```bash
+python3 harness/compare.py data/session.jsonl --ppg --imu
+```
+
+`theta_alpha`, `alpha_symmetry`, `quality`, and `--ppg`/`--imu` are cheap and
+checked on every row. `entropy` is an O(n²) sample-entropy recomputed from
+scratch in pure Python (~5s/row), so it's checked on a sampled subset instead
+(`--entropy-stride N`, default spreads ~20 samples across the file — pass
+`--entropy-stride 1` to check it exhaustively too, slowly).
+
 ## How it works
 
 `museproc` streams the JSONL line by line and reconstructs the EEG onto a regular
